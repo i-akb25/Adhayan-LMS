@@ -1,0 +1,25 @@
+ADHAYAN IMAGE TRACKER
+
+Place all local images in this /assets folder.
+
+FILE NAME                 | COMPONENT USED IN       | DESCRIPTION
+
+adhayan-logo.png          | Navbar.jsx, Footer.jsx  | Rename your WhatsApp transparent logo to this.
+hero-illustration.svg     | LandingPage.jsx         | A vibrant vector illustration of a student.
+about-learning-bg.jpg     | LandingPage.jsx         | Background image of a student giving a thumbs up.
+
+DASHBOARDS
+
+demo-student.jpg          | AuthModal.jsx           | A stock photo of a happy student.
+demo-teacher.jpg          | AuthModal.jsx           | A stock photo of a teacher.
+demo-parent.jpg           | AuthModal.jsx           | A stock photo of parents.
+daily-motivation.jpg      | Dashboard.jsx           | An inspiring quote background image.
+diagnostic-bg.png         | DiagnosticTest.jsx      | A subtle background pattern.
+avatar-default.png        | Dashboard.jsx           | A generic blank user profile picture.
+
+TEAM MEMBERS
+
+team-anurag.jpg           | LandingPage.jsx         | Photo of Anurag
+team-muskan.jpg           | LandingPage.jsx         | Photo of Muskan
+team-prince.jpg           | LandingPage.jsx         | Photo of Prince
+team-abhishek.jpg         | LandingPage.jsx         | Photo of Abhishek

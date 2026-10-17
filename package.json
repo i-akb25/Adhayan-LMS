@@ -1,0 +1,27 @@
+{
+  "name": "adhayan-lms",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace client",
+    "build": "npm run build --workspace client",
+    "test": "npm test --workspace server",
+    "lint": "npm run lint --workspace client",
+    "check": "npm test && npm run lint && npm run build",
+    "backup": "node scripts/database-backup.cjs backup",
+    "restore": "node scripts/database-backup.cjs restore",
+    "test:e2e": "playwright test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "prettier": "^3.9.10"
+  }
+}
