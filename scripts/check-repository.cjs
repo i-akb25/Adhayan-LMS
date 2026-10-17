@@ -10,7 +10,7 @@ for (const f of files) {
     bad.push(f);
   if (
     !fs.existsSync(f) ||
-    !/\.(js|jsx|json|ya?ml|example)$/.test(f) ||
+    !/\.(cjs|mjs|js|jsx|json|ya?ml|example)$/.test(f) ||
     f.endsWith("lock.json")
   )
     continue;
@@ -30,3 +30,17 @@ if (bad.length) {
   process.exit(1);
 }
 console.log("Repository hygiene check passed.");
+
+const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+for (const native of [
+  "@rolldown/binding-win32-x64-msvc",
+  "@rolldown/binding-win32-arm64-msvc",
+  "@tailwindcss/oxide-win32-x64-msvc",
+]) {
+  if (
+    !Object.keys(lock.packages).some((p) =>
+      p.endsWith("node_modules/" + native),
+    )
+  )
+    throw Error("Lockfile is missing a supported Windows native package.");
+}

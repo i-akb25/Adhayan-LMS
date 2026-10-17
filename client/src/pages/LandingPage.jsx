@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import Notice from "../features/Notice";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -54,7 +55,7 @@ const FEATURES = [
     id: 1,
     icon: <FiCpu />,
     title: "AI Diagnostic Testing",
-    desc: "Identify strengths and weak topics instantly with adaptive algorithms.",
+    desc: "Review performance by topic using teacher-authored assessments.",
   },
   {
     id: 2,
@@ -72,7 +73,7 @@ const FEATURES = [
     id: 4,
     icon: <FiClock />,
     title: "Attendance Intelligence",
-    desc: "Automated tracking with predictive absence alerts and reports.",
+    desc: "Teacher-marked attendance with saved records and learning reports.",
   },
   {
     id: 5,
@@ -154,38 +155,38 @@ const TESTIMONIALS = [
   {
     id: 1,
     name: "Aarav M.",
-    role: "JEE Aspirant",
+    role: "Illustrative student example",
     image: testimonial1Img,
-    text: "Adhayan completely changed how I study. The AI pinpointed exactly why I was losing marks in Electromagnetism.",
+    text: "A learner can practise a topic, inspect the answer explanations and use their recorded weak topics to plan revision.",
   },
   {
     id: 2,
     name: "Priya S.",
-    role: "Parent",
+    role: "Illustrative parent example",
     image: testimonial2Img,
-    text: "The parent dashboard is a lifesaver. I get daily updates on attendance and can directly message teachers without waiting for PTMs.",
+    text: "A verified parent can view a linked student’s attendance and test reports and open a private conversation with their teacher.",
   },
   {
     id: 3,
     name: "Rahul V.",
-    role: "High School Teacher",
+    role: "Illustrative teacher example",
     image: testimonial3Img,
-    text: "Hosting live classes here is seamless. The integrated doubt chat and automatic recording save me hours of administrative work.",
+    text: "A teacher can publish lessons, review assessment questions and discuss doubts in member study rooms. Calls are not automatically recorded.",
   },
 ];
 
 const FAQS = [
   {
     q: "What is Adhayan?",
-    a: "Adhayan is a next-generation, AI-powered EdTech platform combining live classes, adaptive diagnostic testing, and comprehensive dashboards for students, teachers, and parents.",
+    a: "ADHAYAN combines structured lessons, teacher-authored assessments, study rooms and dashboards for students, teachers and parents.",
   },
   {
     q: "How does AI Diagnostic Testing work?",
-    a: "Our engine generates a unique test based on your selected stream. It analyzes every answer to identify weak concepts and automatically builds a custom study plan.",
+    a: "Teachers publish reviewed questions. Server-side scoring identifies weak topics from your answers, and a rule-based plan helps you choose what to revise.",
   },
   {
     q: "How do Global Study Rooms work?",
-    a: "They are virtual, WebRTC-powered spaces where students can study together. They feature Pomodoro timers, silent study modes, and targeted focus groups (e.g., JEE Room, NEET Room).",
+    a: "Study rooms provide member chat, a shared whiteboard and optional WebRTC calls. Camera and microphone access starts only when you choose to join a call. Cross-network calls require the operator to configure TURN.",
   },
   {
     q: "Can parents track progress?",
@@ -193,7 +194,7 @@ const FAQS = [
   },
   {
     q: "Is Adhayan suitable for JEE and NEET?",
-    a: "Absolutely. We have dedicated mock test engines, study rooms, and specific analytics tailored for JEE, NEET, and Engineering competitive exams.",
+    a: "Teachers can create exam-specific courses and timed assessments. Availability depends on the reviewed content published for your track; a complete JEE or NEET curriculum is not preloaded.",
   },
 ];
 
@@ -224,6 +225,40 @@ const FadeIn = ({ children, delay = 0, direction = "up", className = "" }) => {
 
 // Custom Dialog/Modal for Footer Links
 const DialogModal = ({ isOpen, onClose, title, content }) => {
+  const panel = useRef(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const getButtons = () => [
+      ...(panel.current?.querySelectorAll(
+        'button,a[href],input,select,textarea,[tabindex="0"]',
+      ) || []),
+    ];
+    getButtons()[0]?.focus();
+    const handler = (e) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Tab") {
+        const controls = getButtons(),
+          first = controls[0],
+          last = controls.at(-1);
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => {
+      document.removeEventListener("keydown", handler);
+      document.body.style.overflow = oldOverflow;
+      previous?.focus();
+    };
+  }, [isOpen, onClose]);
   return (
     <AnimatePresence>
       {isOpen && (
@@ -241,6 +276,10 @@ const DialogModal = ({ isOpen, onClose, title, content }) => {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            ref={panel}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
             className="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700"
           >
             <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
@@ -299,60 +338,19 @@ export default function LandingPage() {
 
   const openModal = (title, content) =>
     setModalConfig({ isOpen: true, title, content });
-  const closeModal = () =>
-    setModalConfig((prev) => ({ ...prev, isOpen: false }));
+  const closeModal = useCallback(
+    () => setModalConfig((prev) => ({ ...prev, isOpen: false })),
+    [],
+  );
 
-  // Dummy Content for Modals
   const legalContent = (
-    <div className="space-y-4">
-      <p>
-        This is a strictly secure, legally compliant, and enterprise-grade
-        application. Data is protected using advanced AES-256 encryption.
-      </p>
-      <p>
-        All user inputs are sanitized against OWASP Top 10 vulnerabilities
-        including XSS, CSRF, and Injection attacks.
-      </p>
-      <h4 className="text-lg font-bold mt-4">Data Collection</h4>
-      <p>
-        We only collect data necessary for providing educational services,
-        including test metrics, attendance logic, and platform engagement.
-      </p>
-    </div>
+    <>
+      <Notice kind="privacy" />
+      <Notice kind="terms" />
+    </>
   );
-
-  const contactContent = (
-    <div className="space-y-4">
-      <p>
-        <strong>Email:</strong> support@adhayan.edu
-      </p>
-      <p>
-        <strong>Phone:</strong> +1 (800) 555-0199
-      </p>
-      <p>
-        <strong>Address:</strong> Tech Park, Sector 4, Silicon Valley, CA
-      </p>
-      <p>
-        For urgent security disclosures, please contact our security team
-        directly via our bug bounty program.
-      </p>
-    </div>
-  );
-
-  const aboutContent = (
-    <div className="space-y-4">
-      <p>
-        <strong>Adhayan</strong> was founded with a singular vision: to bridge
-        the gap between traditional schooling and modern, adaptive technology.
-      </p>
-      <p>
-        Backed by a world-class team of educators, product designers, and
-        security engineers, we provide a holistic ecosystem. We don't just host
-        videos; we analyze performance, engage parents, and create global peer
-        networks.
-      </p>
-    </div>
-  );
+  const contactContent = <Notice kind="contact" />;
+  const aboutContent = <Notice kind="about" />;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-50 font-sans selection:bg-indigo-500/30 selection:text-indigo-900 dark:selection:text-indigo-200 overflow-x-hidden">
@@ -558,10 +556,10 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                    AI Accuracy
+                    Assessment scoring
                   </p>
                   <p className="text-xl font-bold text-slate-900 dark:text-white">
-                    99.8%
+                    Server verified
                   </p>
                 </div>
               </motion.div>
@@ -581,10 +579,10 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                    Active Learners
+                    Learning spaces
                   </p>
                   <p className="text-xl font-bold text-slate-900 dark:text-white">
-                    100k+
+                    Study together
                   </p>
                 </div>
               </motion.div>
@@ -957,10 +955,10 @@ export default function LandingPage() {
         <div className="w-[90%] max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
-              { val: "2M+", label: "Questions Answered" },
-              { val: "150k+", label: "Active Students" },
-              { val: "98%", label: "Parent Satisfaction" },
-              { val: "10k+", label: "Live Classes Held" },
+              { val: "Learn", label: "Structured lessons" },
+              { val: "Practise", label: "Reviewed assessments" },
+              { val: "Track", label: "Learning progress" },
+              { val: "Connect", label: "Member study rooms" },
             ].map((stat, idx) => (
               <FadeIn key={idx} delay={idx * 0.1}>
                 <div className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 mb-2">
@@ -1027,7 +1025,7 @@ export default function LandingPage() {
         <div className="w-[90%] max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
           <FadeIn className="text-center mb-16">
             <h3 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">
-              Trusted by the best.
+              Illustrative learning experiences
             </h3>
           </FadeIn>
 
@@ -1337,7 +1335,7 @@ export default function LandingPage() {
             </p>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              All Systems Operational
+              Explore the learning workspace
             </div>
           </div>
         </div>

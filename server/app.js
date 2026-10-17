@@ -82,9 +82,30 @@ function createApp(config = loadConfig()) {
         return next(new HttpError(403, "Untrusted request origin."));
       if (req.get("sec-fetch-site") === "cross-site")
         return next(new HttpError(403, "Cross-site request denied."));
-      if (req.get("content-type") && !req.is("application/json"))
+      if (
+        req.get("content-type") &&
+        !req.is("application/json") &&
+        !(
+          req.method === "POST" &&
+          /^\/api\/courses\/[a-f\d]{24}\/files$/i.test(req.path) &&
+          req.is("application/octet-stream")
+        )
+      )
         return next(new HttpError(415, "Use application/json."));
     }
+    next();
+  });
+  app.use((req, _res, next) => {
+    if (
+      process.env.BACKUP_WRITES_PAUSED === "true" &&
+      !["GET", "HEAD", "OPTIONS"].includes(req.method)
+    )
+      return next(
+        new HttpError(
+          503,
+          "The service is in a scheduled maintenance window. Try again later.",
+        ),
+      );
     next();
   });
   app.use(compression());
@@ -114,12 +135,10 @@ function createApp(config = loadConfig()) {
       windowMs: 15 * 60000,
       limit: 300,
       handler: (_req, res) =>
-        res
-          .status(429)
-          .json({
-            success: false,
-            message: "Too many requests. Try again later.",
-          }),
+        res.status(429).json({
+          success: false,
+          message: "Too many requests. Try again later.",
+        }),
       standardHeaders: "draft-7",
       legacyHeaders: false,
     }),
@@ -141,12 +160,10 @@ function createApp(config = loadConfig()) {
       limit: 30,
       skipSuccessfulRequests: true,
       handler: (_req, res) =>
-        res
-          .status(429)
-          .json({
-            success: false,
-            message: "Too many requests. Try again later.",
-          }),
+        res.status(429).json({
+          success: false,
+          message: "Too many requests. Try again later.",
+        }),
       standardHeaders: "draft-7",
       legacyHeaders: false,
     }),
@@ -173,6 +190,10 @@ function createApp(config = loadConfig()) {
   });
   app.use("/api/auth", auth.router);
   app.use("/api/ai", createAI(auth, config));
+  app.use(
+    "/api",
+    require("./modules/operations").createOperations(auth, config),
+  );
   app.use("/api", createLearning(auth));
   const path = require("node:path"),
     fs = require("node:fs");

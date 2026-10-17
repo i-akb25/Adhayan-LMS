@@ -5,6 +5,9 @@ const clientRequire = require("node:module").createRequire(
   require("node:path").join(__dirname, "../client/package.json"),
 );
 process.env.NODE_ENV = "test";
+process.env.FILE_STORAGE_KEY = require("node:crypto")
+  .randomBytes(32)
+  .toString("hex");
 const { MongoMemoryServer } = serverRequire("mongodb-memory-server");
 const mongoose = serverRequire("mongoose");
 const bcrypt = serverRequire("bcryptjs");

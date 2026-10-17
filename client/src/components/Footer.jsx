@@ -20,8 +20,7 @@ export default function Footer() {
   // ==========================================
   const handleNewsletterSubmit = (e) => {
     e.preventDefault();
-    // Placeholder for newsletter subscription logic
-    alert("Thank you for subscribing to our newsletter!");
+    // Newsletter collection is intentionally unavailable until a delivery service is configured.
   };
 
   return (
@@ -56,9 +55,9 @@ export default function Footer() {
               <li className="flex items-start gap-3">
                 <FiMapPin className="text-indigo-600 dark:text-indigo-400 text-lg flex-shrink-0 mt-0.5" />
                 <span>
-                  123 Innovation Drive, Tech Park
+                  Online learning workspace
                   <br />
-                  Silicon Valley, CA 94043
+                  Contact the platform operator
                 </span>
               </li>
               <li className="flex items-center gap-3">
@@ -237,8 +236,8 @@ export default function Footer() {
                 Stay Updated
               </h4>
               <p className="text-xs mb-4">
-                Subscribe to our newsletter for the latest platform updates and
-                educational insights.
+                Platform announcements appear in your account. Email newsletter
+                signup is not available.
               </p>
 
               <form
@@ -252,6 +251,7 @@ export default function Footer() {
                   <input
                     type="email"
                     id="newsletter-email"
+                    disabled
                     placeholder="Enter your email"
                     required
                     className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white transition-all"
@@ -259,7 +259,8 @@ export default function Footer() {
                   <button
                     type="submit"
                     className="absolute right-1 top-1 bottom-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-3 flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 dark:focus:ring-offset-slate-900"
-                    aria-label="Subscribe"
+                    aria-label="Newsletter unavailable"
+                    disabled
                   >
                     <FiArrowRight />
                   </button>
@@ -332,7 +333,7 @@ export default function Footer() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            All Systems Operational
+            Learning workspace
           </div>
         </div>
       </div>

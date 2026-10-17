@@ -36,6 +36,8 @@ const User = model(
     lockUntil: Date,
     tokenVersion: { type: Number, default: 0 },
     consentedAt: Date,
+    deletionRequestedAt: Date,
+    fileBytes: { type: Number, default: 0 },
   },
   [
     [{ email: 1 }, { unique: true }],
@@ -90,6 +92,15 @@ const Course = model(
     description: String,
     track: String,
     published: { type: Boolean, default: false },
+    institutionId: optionalId,
+    reviewRequired: { type: Boolean, default: false },
+    reviewedAt: Date,
+    reviewedBy: optionalId,
+    exam: String,
+    stage: String,
+    syllabusYear: Number,
+    syllabus: String,
+    sources: [String],
   },
   [[{ track: 1, published: 1 }, {}]],
   "adhayan_courses",
@@ -113,6 +124,9 @@ const Lesson = model(
     content: String,
     videoUrl: String,
     order: Number,
+    workedExample: String,
+    revisionNotes: String,
+    sourceUrl: String,
   },
   [[{ courseId: 1, order: 1 }, {}]],
   "adhayan_lessons",
@@ -155,6 +169,14 @@ const Test = model(
     ownerId: id,
     title: String,
     durationMinutes: Number,
+    sections: [
+      {
+        _id: false,
+        name: String,
+        durationMinutes: Number,
+        questionCount: Number,
+      },
+    ],
     questions: { type: [questionSchema], select: false },
     published: { type: Boolean, default: false },
   },
@@ -167,6 +189,14 @@ const Attempt = model(
     studentId: id,
     testId: id,
     courseId: id,
+    sections: [
+      {
+        _id: false,
+        name: String,
+        durationMinutes: Number,
+        questionCount: Number,
+      },
+    ],
     startedAt: Date,
     deadline: Date,
     submittedAt: Date,
@@ -274,7 +304,45 @@ const Plan = model(
   [[{ studentId: 1 }, { unique: true }]],
   "adhayan_plans",
 );
+const Institution = model(
+  "Institution",
+  {
+    name: String,
+    description: String,
+    active: { type: Boolean, default: true },
+  },
+  [],
+  "adhayan_institutions",
+);
+const Membership = model(
+  "InstitutionMember",
+  { institutionId: id, userId: id },
+  [[{ institutionId: 1, userId: 1 }, { unique: true }]],
+  "adhayan_memberships",
+);
+const PrivateFile = model(
+  "PrivateLearningFile",
+  {
+    courseId: id,
+    ownerId: id,
+    name: String,
+    title: String,
+    mime: String,
+    size: Number,
+    ciphertext: { type: Buffer, select: false },
+    nonce: { type: Buffer, select: false },
+    tag: { type: Buffer, select: false },
+  },
+  [
+    [{ courseId: 1 }, {}],
+    [{ ownerId: 1 }, {}],
+  ],
+  "adhayan_private_files",
+);
 module.exports = {
+  Institution,
+  Membership,
+  PrivateFile,
   User,
   Session,
   ActionToken,

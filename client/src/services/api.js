@@ -30,7 +30,8 @@ api.interceptors.request.use((config) => {
     !["get", "head", "options"].includes((config.method || "get").toLowerCase())
   ) {
     config.headers["X-CSRF-Token"] = getCSRF();
-    config.headers["Content-Type"] = "application/json";
+    if (config.headers["Content-Type"] !== "application/octet-stream")
+      config.headers["Content-Type"] = "application/json";
   }
   return config;
 });

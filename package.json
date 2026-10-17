@@ -15,13 +15,18 @@
     "check": "npm test && npm run lint && npm run build",
     "backup": "node scripts/database-backup.cjs backup",
     "restore": "node scripts/database-backup.cjs restore",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "start": "npm start --workspace server",
+    "setup": "node scripts/setup.cjs",
+    "doctor": "node scripts/doctor.cjs",
+    "check:repo": "node scripts/check-repository.cjs",
+    "maintenance": "node scripts/maintenance.cjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.1",
-    "prettier": "^3.9.10"
+    "@playwright/test": "1.64.1",
+    "prettier": "3.9.10"
   }
 }

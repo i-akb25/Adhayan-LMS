@@ -57,6 +57,23 @@ test("student registers, enrols, studies, takes a test and restores saved progre
     await page.evaluate(() => localStorage.getItem("adhayan_access_token")),
   ).toBeNull();
   expect(errors).toEqual([]);
+  await page.goto("/settings");
+  const accountDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download my account data", exact: true })
+    .click();
+  expect((await accountDownload).suggestedFilename()).toBe(
+    "adhayan-account.json",
+  );
+  await page.getByText("Delete my account", { exact: true }).click();
+  await page.locator('input[name="password"]').fill("TestOnlyPassword123!");
+  await page
+    .getByRole("textbox", { name: "Type DELETE MY ACCOUNT", exact: true })
+    .fill("DELETE MY ACCOUNT");
+  await page
+    .getByRole("button", { name: "Permanently delete account", exact: true })
+    .click();
+  await expect(page).toHaveURL("/");
 });
 test("existing public and demo screens render without runtime exceptions", async ({
   page,
@@ -80,4 +97,90 @@ test("existing public and demo screens render without runtime exceptions", async
     await expect(page.getByRole("status")).toContainText(/Demonstration/);
   }
   expect(errors).toEqual([]);
+});
+
+test("teacher imports, reviews, publishes and uploads private course material", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.locator('input[name="email"]').fill("teacher@example.test");
+  await page.locator('input[name="password"]').fill("TestOnlyPassword123!");
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
+  await expect(page).toHaveURL(/teacher\/dashboard/);
+  await page.getByText("Import a sourced curriculum", { exact: true }).click();
+  await page
+    .locator('input[name="package"]')
+    .setInputFiles(
+      require("node:path").join(
+        __dirname,
+        "../../client/public/content/algebra-foundations.json",
+      ),
+    );
+  await page
+    .getByRole("button", { name: "Import as draft", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/learn\/[a-f0-9]{24}/);
+  await page
+    .getByText("Review and edit course content", { exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: /Algebra foundations.*Review required/ }),
+  ).toBeVisible();
+  await page
+    .getByRole("checkbox", { name: /I checked the lesson content/ })
+    .check();
+  await page
+    .getByRole("button", { name: "Approve content review", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: /Algebra foundations.*Reviewed/ }),
+  ).toBeVisible();
+  await page
+    .getByText("Linear equations practice · Draft", { exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Publish assessment", exact: true })
+    .click();
+  await expect(
+    page.getByText("Linear equations practice · Published", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("textbox", { name: "File title", exact: true })
+    .fill("Equation reference");
+  await page.locator('input[name="file"]').setInputFiles({
+    name: "equations.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\nEducational test file\n%%EOF"),
+  });
+  await page
+    .getByRole("button", { name: "Upload private file", exact: true })
+    .click();
+  const file = page.getByRole("button", {
+    name: "Download equations.pdf",
+    exact: true,
+  });
+  await expect(file).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await file.click();
+  const downloaded = await downloading;
+  expect(downloaded.suggestedFilename()).toBe("equations.pdf");
+  await page.screenshot({
+    path: test.info().outputPath("course-review.png"),
+    fullPage: true,
+  });
+  await page
+    .getByRole("link", { name: "Back to learning", exact: true })
+    .click();
+  const card = page.locator("article").filter({
+    has: page.getByRole("heading", {
+      name: "Algebra foundations: linear equations",
+      exact: true,
+    }),
+  });
+  // Earlier projects leave reviewed drafts in the isolated test database.
+  await card
+    .first()
+    .getByRole("button", { name: "Publish", exact: true })
+    .click();
+  await expect(card.first()).toContainText("Published");
 });

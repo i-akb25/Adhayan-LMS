@@ -653,3 +653,387 @@ test("parent–teacher conversations stay private and follow student revocation"
     403,
   );
 });
+
+test("private attachments encrypt bytes, enforce membership, reject unsupported files and tampering", async () => {
+  process.env.FILE_STORAGE_KEY = "c".repeat(64);
+  const t = await teacher(),
+    s = await register(),
+    other = await register();
+  const c = await course(t);
+  await call(s, "post", `/api/courses/${c}/enroll`, {});
+  const pdf = Buffer.from("%PDF-1.4\nTest educational attachment\n%%EOF");
+  const upload = (user, bytes) =>
+    request(app)
+      .post(`/api/courses/${c}/files`)
+      .query({ title: "Practice", name: "../../exercise.pdf" })
+      .set("Origin", origin)
+      .set("Cookie", user.cookies)
+      .set("X-CSRF-Token", user.csrf)
+      .set("Content-Type", "application/octet-stream")
+      .send(bytes);
+  assert.equal((await upload(s, pdf)).status, 403);
+  assert.equal(
+    (await upload(t, Buffer.from("<script>evil</script>"))).status,
+    400,
+  );
+  const response = await upload(t, pdf);
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const fid = response.body.data.id;
+  const stored = await M.PrivateFile.findById(fid).select(
+    "+ciphertext +nonce +tag",
+  );
+  assert.notDeepEqual(stored.ciphertext, pdf);
+  const listing = await call(s, "get", `/api/courses/${c}/files`);
+  assert.equal(listing.body.data[0].ciphertext, undefined);
+  assert.equal(
+    (await call(other, "get", `/api/files/${fid}/download`)).status,
+    403,
+  );
+  const downloaded = await call(s, "get", `/api/files/${fid}/download`);
+  assert.equal(downloaded.status, 200);
+  assert.deepEqual(downloaded.body, pdf);
+  assert.match(downloaded.headers["content-disposition"], /^attachment;/);
+  assert.ok(!downloaded.headers["content-disposition"].includes("../"));
+  stored.ciphertext[0] ^= 1;
+  stored.markModified("ciphertext");
+  await stored.save();
+  assert.equal(
+    (await call(s, "get", `/api/files/${fid}/download`)).status,
+    500,
+  );
+  await call(t, "delete", `/api/files/${fid}`);
+  assert.equal(await M.PrivateFile.countDocuments({ _id: fid }), 0);
+  delete process.env.FILE_STORAGE_KEY;
+});
+
+test("institution enrolment and downloads are revoked with membership", async () => {
+  const admin = await teacher(),
+    t = await teacher(),
+    s = await register(),
+    other = await register();
+  await M.User.updateOne({ _id: admin.id }, { $set: { role: "admin" } });
+  const response = await call(admin, "post", "/api/admin/institutions", {
+    name: "Learning Centre",
+  });
+  assert.equal(response.status, 201);
+  const institutionId = response.body.data.id;
+  assert.equal(
+    (await call(t, "post", "/api/admin/institutions", { name: "Forbidden" }))
+      .status,
+    403,
+  );
+  for (const user of [t, s])
+    assert.equal(
+      (
+        await call(
+          admin,
+          "put",
+          `/api/admin/institutions/${institutionId}/members`,
+          { email: user.email },
+        )
+      ).status,
+      200,
+    );
+  const cr = await call(t, "post", "/api/courses", {
+    title: "Institution Algebra",
+    track: "11 · JEE",
+    institutionId,
+    published: true,
+  });
+  assert.equal(cr.status, 201, JSON.stringify(cr.body));
+  const c = cr.body.data.id;
+  assert.equal(
+    (await call(other, "post", `/api/courses/${c}/enroll`, {})).status,
+    403,
+  );
+  assert.equal(
+    (await call(s, "post", `/api/courses/${c}/enroll`, {})).status,
+    200,
+  );
+  assert.equal((await call(s, "get", `/api/courses/${c}/lessons`)).status, 200);
+  await call(
+    admin,
+    "delete",
+    `/api/admin/institutions/${institutionId}/members/${s.id}`,
+  );
+  assert.equal((await call(s, "get", `/api/courses/${c}/lessons`)).status, 403);
+  assert.ok(
+    !(await call(s, "get", "/api/courses")).body.data.some(
+      (course) => course.id === c,
+    ),
+  );
+});
+
+test("curriculum imports are validated, private until review, and edits invalidate sourced content approval", async () => {
+  const t = await teacher(),
+    outsider = await teacher(),
+    s = await register();
+  const source =
+    "https://openstax.org/books/elementary-algebra-2e/pages/2-introduction";
+  const pack = {
+    title: "Starter",
+    description: "Original starter",
+    track: "11 · JEE",
+    syllabus: "Linear equations",
+    sources: [source],
+    lessons: [
+      {
+        title: "Equations",
+        subject: "Math",
+        chapter: "Algebra",
+        content: "Subtract equally.",
+        workedExample: "x + 2 = 5 gives x = 3.",
+        revisionNotes: "Check by substitution.",
+        sourceUrl: source,
+      },
+    ],
+    tests: [
+      {
+        title: "Check",
+        durationMinutes: 10,
+        questions: [
+          {
+            prompt: "x + 2 = 5. Find x.",
+            options: ["3", "7"],
+            correctIndex: 0,
+            explanation: "Subtract 2 from both sides.",
+            topic: "Equations",
+          },
+        ],
+      },
+    ],
+  };
+  assert.equal(
+    (await call(s, "post", "/api/curriculum/import", pack)).status,
+    403,
+  );
+  const r = await call(t, "post", "/api/curriculum/import", pack);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const c = r.body.data.id;
+  assert.equal(
+    (await call(t, "patch", `/api/courses/${c}`, { published: true })).status,
+    409,
+  );
+  assert.equal(
+    (await call(outsider, "get", `/api/courses/${c}/review`)).status,
+    403,
+  );
+  const review = (await call(t, "get", `/api/courses/${c}/review`)).body.data;
+  assert.equal(review.tests[0].questions[0].correctIndex, 0);
+  assert.equal(
+    (await call(t, "post", `/api/courses/${c}/review`, { confirmed: true }))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await call(t, "patch", `/api/courses/${c}`, { published: true })).status,
+    200,
+  );
+  const changed = await call(
+    t,
+    "patch",
+    `/api/lessons/${review.lessons[0].id}`,
+    { content: "Updated original explanation." },
+  );
+  assert.equal(changed.status, 200);
+  assert.equal((await M.Course.findById(c)).published, false);
+  assert.equal((await M.Course.findById(c)).reviewRequired, true);
+});
+
+test("account export hides assessment keys and deletion revokes sessions and removes personal learning data", async () => {
+  const s = await register(),
+    t = await teacher(),
+    c = await course(t);
+  await call(s, "post", `/api/courses/${c}/enroll`, {});
+  const tst = await call(t, "post", "/api/tests", {
+    courseId: c,
+    title: "Export boundaries",
+    durationMinutes: 10,
+    published: true,
+    questions: [
+      {
+        prompt: "Secret key?",
+        options: ["A", "B"],
+        correctIndex: 1,
+        explanation: "Hidden until submission",
+        topic: "Privacy",
+      },
+    ],
+  });
+  await call(s, "post", `/api/tests/${tst.body.data.id}/start`, {});
+  const exported = await call(s, "get", "/api/account/export");
+  assert.equal(exported.status, 200);
+  assert.equal(exported.body.user.email, s.email);
+  assert.equal(exported.body.records.Attempt[0].questions, undefined);
+  assert.equal(
+    (
+      await call(s, "delete", "/api/account", {
+        password: "wrong",
+        confirmation: "DELETE MY ACCOUNT",
+      })
+    ).status,
+    400,
+  );
+  const deleted = await call(s, "delete", "/api/account", {
+    password: secret,
+    confirmation: "DELETE MY ACCOUNT",
+  });
+  assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+  assert.equal((await call(s, "get", "/api/auth/me")).status, 401);
+  assert.equal(await M.Attempt.countDocuments({ studentId: s.id }), 0);
+  assert.equal(await M.Enrollment.countDocuments({ studentId: s.id }), 0);
+  const u = await M.User.findById(s.id);
+  assert.equal(u.isDeleted, true);
+  assert.notEqual(u.email, s.email);
+});
+
+test("sectioned mocks reveal only the active section and lock earlier answers", async () => {
+  const t = await teacher(),
+    s = await register(),
+    c = await course(t);
+  await call(s, "post", `/api/courses/${c}/enroll`, {});
+  const questions = [
+    {
+      prompt: "First section",
+      options: ["A", "B"],
+      correctIndex: 0,
+      explanation: "First explanation",
+      topic: "First",
+    },
+    {
+      prompt: "Second section",
+      options: ["A", "B"],
+      correctIndex: 1,
+      explanation: "Second explanation",
+      topic: "Second",
+    },
+  ];
+  const data = {
+    courseId: c,
+    title: "Sectioned practice",
+    durationMinutes: 2,
+    published: true,
+    questions,
+    sections: [
+      { name: "First", durationMinutes: 1, questionCount: 1 },
+      { name: "Second", durationMinutes: 1, questionCount: 1 },
+    ],
+  };
+  assert.equal(
+    (await call(t, "post", "/api/tests", { ...data, durationMinutes: 3 }))
+      .status,
+    400,
+  );
+  const created = await call(t, "post", "/api/tests", data);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const tid = created.body.data.id;
+  const first = (await call(s, "post", `/api/tests/${tid}/start`, {})).body
+    .data;
+  assert.equal(first.section.name, "First");
+  assert.equal(first.questions.length, 1);
+  assert.equal(first.questions[0].prompt, "First section");
+  assert.equal(first.questions[0].correctIndex, undefined);
+  const q1 = first.questions[0].id;
+  assert.equal(
+    (
+      await call(s, "put", `/api/tests/${tid}/answers`, {
+        answers: { [q1]: 0 },
+      })
+    ).status,
+    200,
+  );
+  await M.Attempt.updateOne(
+    { studentId: s.id, testId: tid },
+    { $set: { startedAt: new Date(Date.now() - 61000) } },
+  );
+  const second = (await call(s, "post", `/api/tests/${tid}/start`, {})).body
+    .data;
+  assert.equal(second.section.name, "Second");
+  assert.equal(second.questions[0].prompt, "Second section");
+  const q2 = second.questions[0].id;
+  assert.equal(
+    (
+      await call(s, "put", `/api/tests/${tid}/answers`, {
+        answers: { [q1]: 1, [q2]: 1 },
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(s, "put", `/api/tests/${tid}/answers`, {
+        answers: { [q1]: 0, [q2]: 1 },
+      })
+    ).status,
+    200,
+  );
+  const result = await call(s, "post", `/api/tests/${tid}/submit`, {
+    answers: { [q2]: 1 },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.data.correct, 2);
+});
+
+test("SMTP verification/reset links are single-use and do not expose tokens in API responses", async () => {
+  const nodemailer = require("nodemailer"),
+    original = nodemailer.createTransport,
+    mails = [];
+  const previous = {
+    MAIL_HOST: process.env.MAIL_HOST,
+    MAIL_FROM_EMAIL: process.env.MAIL_FROM_EMAIL,
+  };
+  process.env.MAIL_HOST = "smtp.example.test";
+  process.env.MAIL_FROM_EMAIL = "sender@example.test";
+  nodemailer.createTransport = () => ({
+    sendMail: async (mail) => {
+      mails.push(mail);
+    },
+  });
+  try {
+    const s = await register();
+    mails.length = 0;
+    const response = await call(s, "post", "/api/auth/resend-verification", {});
+    assert.equal(response.status, 200);
+    assert.equal(response.body.token, undefined);
+    const token = new URL(
+      mails.at(-1).text.match(/https?:\/\/\S+/)[0],
+    ).hash.slice(1);
+    assert.equal(
+      (await call(null, "post", "/api/auth/verify-email", { token })).status,
+      200,
+    );
+    assert.equal(
+      (await call(null, "post", "/api/auth/verify-email", { token })).status,
+      400,
+    );
+    await call(null, "post", "/api/auth/forgot-password", { email: s.email });
+    const reset = new URL(
+      mails.at(-1).text.match(/https?:\/\/\S+/)[0],
+    ).hash.slice(1);
+    assert.equal(
+      (
+        await call(null, "post", "/api/auth/reset-password", {
+          token: reset,
+          password: "AnotherStrong123!",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await call(null, "post", "/api/auth/reset-password", {
+          token: reset,
+          password: "AnotherStrong123!",
+        })
+      ).status,
+      400,
+    );
+    assert.equal((await call(s, "get", "/api/auth/me")).status, 401);
+  } finally {
+    nodemailer.createTransport = original;
+    for (const [k, v] of Object.entries(previous)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});

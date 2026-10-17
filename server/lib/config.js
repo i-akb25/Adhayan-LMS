@@ -10,6 +10,15 @@ function loadConfig(env = process.env) {
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_REFRESH_SECRET: z.string().min(32),
     TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
+    FILE_STORAGE_KEY: z
+      .union([z.string().regex(/^[a-f\d]{64}$/i), z.literal("")])
+      .default(""),
+    BACKUP_KEY: z
+      .union([z.string().regex(/^[a-f\d]{64}$/i), z.literal("")])
+      .default(""),
+    BACKUP_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+    OPERATOR_NAME: z.string().max(200).default(""),
+    SUPPORT_EMAIL: z.union([z.string().email(), z.literal("")]).default(""),
   });
   const parsed = schema.safeParse(env);
   if (!parsed.success)
@@ -32,6 +41,14 @@ function loadConfig(env = process.env) {
   }
   if (c.JWT_ACCESS_SECRET === c.JWT_REFRESH_SECRET)
     throw new Error("Authentication secrets must differ");
+  const keys = [
+    c.JWT_ACCESS_SECRET,
+    c.JWT_REFRESH_SECRET,
+    c.FILE_STORAGE_KEY,
+    c.BACKUP_KEY,
+  ].filter(Boolean);
+  if (new Set(keys).size !== keys.length)
+    throw new Error("Encryption and authentication keys must be independent");
   c.secure = c.NODE_ENV === "production";
   return c;
 }

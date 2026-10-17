@@ -109,6 +109,7 @@ function realtime(server, app) {
       socket.on(name, async (value, ack) => {
         const reply = typeof ack === "function" ? ack : () => {};
         try {
+          if (process.env.BACKUP_WRITES_PAUSED === "true") throw Error();
           await fn(parse(schema, value), reply);
         } catch {
           reply({ success: false, message: "Room action denied." });

@@ -1,3 +1,12 @@
+import {
+  PrivateFiles,
+  ContentImport,
+  ContentReview,
+  Institutions,
+  DataControls,
+  Readiness,
+  InstitutionSelect,
+} from "./Management";
 const RoomCall = lazy(() => import("./RoomCall"));
 
 import {
@@ -43,22 +52,35 @@ export function useResource(path, initial = null) {
   const [data, setData] = useState(initial),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(!!path);
+  const sequence = useRef(0),
+    empty = useRef(initial);
   const load = useCallback(async () => {
-    if (!path) return;
+    const current = ++sequence.current;
+    if (!path) {
+      setData(empty.current);
+      setLoading(false);
+      setError("");
+      return;
+    }
     setLoading(true);
     try {
       const r = await api.get(path);
+      if (current !== sequence.current) return;
       setData(r.data);
       setError("");
     } catch (e) {
-      setError(e.message);
+      if (current === sequence.current) setError(e.message);
     } finally {
-      setLoading(false);
+      if (current === sequence.current) setLoading(false);
     }
   }, [path]);
+  const invalidate = useCallback(() => {
+    sequence.current++;
+  }, []);
   useEffect(() => {
     load();
-  }, [load]);
+    return invalidate;
+  }, [load, invalidate]);
   return { data, setData, error, loading, reload: load };
 }
 function useAction() {
@@ -190,6 +212,9 @@ function Courses() {
           description: f.get("description"),
           track: f.get("track"),
           published: f.get("published") === "on",
+          ...(f.get("institutionId")
+            ? { institutionId: f.get("institutionId") }
+            : {}),
         }),
       courses.reload,
     );
@@ -234,6 +259,7 @@ function Courses() {
             <Field label="Title" name="title" required maxLength={200} />
             <Field label="Track" name="track" required maxLength={150} />
             <Field label="Description" name="description" maxLength={5000} />
+            <InstitutionSelect />
             <label>
               <input type="checkbox" name="published" /> Publish for students
             </label>
@@ -245,6 +271,7 @@ function Courses() {
           </form>
         </details>
       )}
+      {teacher && <ContentImport onImported={courses.reload} />}
       <div className="space-y-4">
         {courses.loading ? (
           <Empty>Loading courses…</Empty>
@@ -324,6 +351,9 @@ export function CourseDetail() {
           content: f.get("content"),
           videoUrl: f.get("videoUrl") || "",
           order: Number(f.get("order")),
+          workedExample: f.get("workedExample") || "",
+          revisionNotes: f.get("revisionNotes") || "",
+          sourceUrl: f.get("sourceUrl") || "",
         }),
       lessons.reload,
     );
@@ -366,12 +396,30 @@ export function CourseDetail() {
                   rows={8}
                 />
               </label>
+              {["workedExample", "revisionNotes"].map((name) => (
+                <label key={name} className="block">
+                  {name === "workedExample"
+                    ? "Worked example"
+                    : "Revision notes"}
+                  <textarea
+                    className={input}
+                    name={name}
+                    rows={4}
+                    maxLength={10000}
+                  />
+                </label>
+              ))}
+              <Field label="Source URL (HTTPS)" name="sourceUrl" type="url" />
               <button disabled={busy} className={button}>
                 Save lesson
               </button>
             </form>
           </details>
         )}
+        {teacher && (
+          <ContentReview courseId={id} reloadLessons={lessons.reload} />
+        )}
+        <PrivateFiles courseId={id} teacher={teacher} />
         <div className="grid lg:grid-cols-[280px_1fr] gap-6">
           <aside className={box}>
             {!list(lessons.data).length ? (
@@ -402,6 +450,32 @@ export function CourseDetail() {
                 <p className="whitespace-pre-wrap leading-relaxed">
                   {lesson.content}
                 </p>
+                {lesson.workedExample && (
+                  <section>
+                    <h3 className="font-bold">Worked example</h3>
+                    <p className="whitespace-pre-wrap">
+                      {lesson.workedExample}
+                    </p>
+                  </section>
+                )}
+                {lesson.revisionNotes && (
+                  <section>
+                    <h3 className="font-bold">Revision notes</h3>
+                    <p className="whitespace-pre-wrap">
+                      {lesson.revisionNotes}
+                    </p>
+                  </section>
+                )}
+                {lesson.sourceUrl && (
+                  <a
+                    className="block underline"
+                    href={lesson.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Lesson reference
+                  </a>
+                )}
                 {lesson.videoUrl && (
                   <a
                     className="underline"
@@ -511,6 +585,23 @@ function Assessments() {
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
   }, [attempt, finish]);
+  useEffect(() => {
+    if (!attempt?.section || attempt.section.name === "Finished") return;
+    const delay = Math.max(
+      0,
+      new Date(attempt.section.deadline) - new Date(attempt.serverTime),
+    );
+    const timer = setTimeout(() => {
+      api
+        .post(`/tests/${attempt.testId}/start`, {})
+        .then((r) => {
+          setAnswers(r.data.answers || {});
+          setAttempt(r.data);
+        })
+        .catch((e) => setResult({ error: e.message }));
+    }, delay + 150);
+    return () => clearTimeout(timer);
+  }, [attempt]);
   const [saveError, setSaveError] = useState("");
   useEffect(() => {
     if (!attempt) return;
@@ -538,6 +629,7 @@ function Assessments() {
         durationMinutes: Number(f.get("durationMinutes")),
         published: true,
         questions,
+        sections: JSON.parse(f.get("sections") || "[]"),
       });
     }, tests.reload);
   };
@@ -570,6 +662,16 @@ function Assessments() {
                 }
               />
             </label>
+            <label className="block">
+              Timed sections JSON (optional)
+              <textarea
+                className={input}
+                name="sections"
+                rows={3}
+                defaultValue="[]"
+                placeholder='[ {"name":"Section 1","durationMinutes":15,"questionCount":10} ]'
+              />
+            </label>
             <p className="text-sm text-slate-500">
               Review every question and explanation before publishing. Correct
               answer indexes begin at zero.
@@ -584,6 +686,13 @@ function Assessments() {
         <section className={box}>
           <h2 className="text-xl font-bold">{attempt.title}</h2>
           <ErrorNotice message={saveError} />
+          {attempt.section && (
+            <p className="font-bold">
+              {attempt.section.name} · section closes at{" "}
+              {new Date(attempt.section.deadline).toLocaleTimeString()}. Earlier
+              sections are locked.
+            </p>
+          )}
           <p role="timer">
             Time remaining: {Math.floor(remaining / 60)}:
             {String(remaining % 60).padStart(2, "0")}
@@ -607,6 +716,13 @@ function Assessments() {
                   {o}
                 </label>
               ))}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => setAnswers((a) => ({ ...a, [q.id]: null }))}
+              >
+                Clear answer
+              </button>
             </fieldset>
           ))}
           <button
@@ -1260,6 +1376,23 @@ function Rooms() {
                 >
                   Join discussion
                 </button>
+                {(String(r.ownerId) === user.id || user.role === "Admin") && (
+                  <button
+                    className="block underline"
+                    disabled={busy}
+                    onClick={() =>
+                      act(async () => {
+                        await api.delete(`/rooms/${r.id}`);
+                        if (room?.id === r.id) {
+                          setRoom(null);
+                          setMessages([]);
+                        }
+                      }, rooms.reload)
+                    }
+                  >
+                    Close room
+                  </button>
+                )}
               </div>
             ))
           )}
@@ -1336,6 +1469,7 @@ function Account() {
   return (
     <>
       <ErrorNotice message={message || sessions.error} />
+      <DataControls />
       {notice && <p role="status">{notice}</p>}
       <form
         className={box}
@@ -1481,6 +1615,8 @@ function Administration() {
   return (
     <>
       <ErrorNotice message={message || users.error || audit.error} />
+      <Readiness />
+      <Institutions />
       <form
         className={box}
         onSubmit={(e) => {
@@ -1532,6 +1668,33 @@ function Administration() {
               {u.name} · {u.email} · {u.role}
             </p>
             {u.role !== "admin" && (
+              <form
+                className="flex gap-2 py-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const track = new FormData(e.currentTarget).get("track");
+                  act(
+                    () => api.patch(`/admin/users/${u.id}`, { track }),
+                    users.reload,
+                  );
+                }}
+              >
+                <label className="flex-1">
+                  Active learning track
+                  <input
+                    className={input}
+                    name="track"
+                    defaultValue={u.track || ""}
+                    maxLength={150}
+                    required
+                  />
+                </label>
+                <button className={button} disabled={busy}>
+                  Update track
+                </button>
+              </form>
+            )}
+            {u.role !== "admin" && (
               <>
                 <select
                   className={input}
@@ -1558,12 +1721,14 @@ function Administration() {
                   onClick={() =>
                     act(
                       () =>
-                        api.patch(`/admin/users/${u.id}`, { isActive: false }),
+                        api.patch(`/admin/users/${u.id}`, {
+                          isActive: !u.isActive,
+                        }),
                       users.reload,
                     )
                   }
                 >
-                  Disable account
+                  {u.isActive ? "Disable account" : "Enable account"}
                 </button>
               </>
             )}

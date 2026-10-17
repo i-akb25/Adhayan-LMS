@@ -1,3 +1,9 @@
+const {
+  sections,
+  validateSections,
+  activeSection,
+  mergeAnswers,
+} = require("../lib/assessment");
 const express = require("express");
 const { z } = require("zod");
 const crypto = require("node:crypto");
@@ -26,7 +32,7 @@ const output = (doc) => {
 };
 const answerSchema = z
   .record(z.string().max(100), z.number().int().min(0).max(7).nullable())
-  .refine((a) => Object.keys(a).length <= 100);
+  .refine((a) => Object.keys(a).length <= 200);
 const question = z
   .object({
     prompt: text(3000),
@@ -42,7 +48,19 @@ const question = z
 async function courseAccess(user, courseId, write = false) {
   const c = await M.Course.findById(id(courseId));
   if (!c) fail(404, "Course not found.");
-  if (user.role === "admin" || same(c.ownerId, user._id)) return c;
+  if (user.role === "admin") return c;
+  if (
+    c.institutionId &&
+    !(
+      (await M.Institution.exists({ _id: c.institutionId, active: true })) &&
+      (await M.Membership.exists({
+        institutionId: c.institutionId,
+        userId: user._id,
+      }))
+    )
+  )
+    fail(403, "Institution membership is required.");
+  if (same(c.ownerId, user._id) && user.role === "teacher") return c;
   if (write) fail(403, "Only the course owner can change this content.");
   if (
     user.role !== "student" ||
@@ -63,11 +81,16 @@ async function studentAccess(user, studentId) {
   )
     return;
   if (user.role === "teacher") {
-    const courses = await M.Course.find({ ownerId: user._id }).select("_id");
+    const courses = await accessibleCourseIds(
+      user,
+      (await M.Course.find({ ownerId: user._id }).select("_id")).map(
+        (c) => c._id,
+      ),
+    );
     if (
       await M.Enrollment.exists({
         studentId,
-        courseId: { $in: courses.map((c) => c._id) },
+        courseId: { $in: courses },
       })
     )
       return;
@@ -138,6 +161,18 @@ async function analytics(studentId, courseIds = null) {
     results: attempts.map(output),
   };
 }
+async function accessibleCourseIds(user, ids) {
+  const allowed = [];
+  for (const value of ids) {
+    try {
+      await courseAccess(user, value);
+      allowed.push(value);
+    } catch (e) {
+      if (![403, 404].includes(e.status)) throw e;
+    }
+  }
+  return allowed;
+}
 function createLearning(auth) {
   const r = express.Router();
   r.use(auth.authenticate);
@@ -202,6 +237,18 @@ function createLearning(auth) {
                 published: true,
                 ...(req.user.track ? { track: req.user.track } : {}),
               };
+      if (req.user.role !== "admin") {
+        const active = await M.Institution.find({ active: true }).select("_id");
+        const memberships = await M.Membership.find({
+          userId: req.user._id,
+          institutionId: { $in: active.map((i) => i._id) },
+        });
+        filter.$or = [
+          { institutionId: { $exists: false } },
+          { institutionId: null },
+          { institutionId: { $in: memberships.map((m) => m.institutionId) } },
+        ];
+      }
       const data = await M.Course.find(filter)
         .sort({ createdAt: -1 })
         .limit(100);
@@ -227,11 +274,29 @@ function createLearning(auth) {
             title: text(),
             description: z.string().max(5000).default(""),
             track: text(150),
+            institutionId: objectId.optional(),
             published: z.boolean().default(false),
           })
           .strict(),
         req.body,
       );
+      if (data.institutionId) {
+        if (
+          !(await M.Institution.exists({
+            _id: data.institutionId,
+            active: true,
+          }))
+        )
+          fail(404, "Institution not found.");
+        if (
+          req.user.role !== "admin" &&
+          !(await M.Membership.exists({
+            institutionId: data.institutionId,
+            userId: req.user._id,
+          }))
+        )
+          fail(403, "Institution membership is required.");
+      }
       res.status(201).json({
         success: true,
         data: output(await M.Course.create({ ...data, ownerId: req.user._id })),
@@ -242,7 +307,7 @@ function createLearning(auth) {
     "/courses/:id",
     teacher,
     wrap(async (req, res) => {
-      await courseAccess(req.user, req.params.id, true);
+      const existing = await courseAccess(req.user, req.params.id, true);
       const data = parse(
         z
           .object({
@@ -253,6 +318,8 @@ function createLearning(auth) {
           .strict(),
         req.body,
       );
+      if (data.published && existing.reviewRequired)
+        fail(409, "Review the imported content before publishing.");
       res.json({
         success: true,
         data: output(
@@ -273,6 +340,20 @@ function createLearning(auth) {
       if (!c?.published) fail(404, "Course not found.");
       if (!req.user.track || c.track !== req.user.track)
         fail(409, "Choose the matching active learning track first.");
+      if (
+        c.institutionId &&
+        !(
+          (await M.Institution.exists({
+            _id: c.institutionId,
+            active: true,
+          })) &&
+          (await M.Membership.exists({
+            institutionId: c.institutionId,
+            userId: req.user._id,
+          }))
+        )
+      )
+        fail(403, "Institution membership is required.");
       await M.Enrollment.updateOne(
         { studentId: req.user._id, courseId: c._id },
         { $setOnInsert: { studentId: req.user._id, courseId: c._id } },
@@ -317,10 +398,14 @@ function createLearning(auth) {
             content: text(50000),
             videoUrl: z.union([safeUrl, z.literal("")]).default(""),
             order: z.number().int().min(0).max(10000).default(0),
+            workedExample: z.string().max(10000).default(""),
+            revisionNotes: z.string().max(10000).default(""),
+            sourceUrl: z.union([safeUrl, z.literal("")]).default(""),
           })
           .strict(),
         req.body,
       );
+      await require("./operations").invalidateReview(req.params.id);
       res.status(201).json({
         success: true,
         data: output(
@@ -375,6 +460,7 @@ function createLearning(auth) {
           )
         ).map((e) => e.courseId);
       }
+      ids = await accessibleCourseIds(req.user, ids);
       res.json({
         success: true,
         data: (
@@ -435,6 +521,7 @@ function createLearning(auth) {
                   "courseId",
                 )
         ).map((c) => c.courseId || c._id);
+      courses = await accessibleCourseIds(req.user, courses);
       const data = await M.Test.find({
         courseId: { $in: courses },
         ...(req.user.role === "student" ? { published: true } : {}),
@@ -453,12 +540,14 @@ function createLearning(auth) {
             title: text(),
             durationMinutes: z.number().int().min(1).max(300),
             published: z.boolean().default(false),
-            questions: z.array(question).min(1).max(100),
+            questions: z.array(question).min(1).max(200),
+            sections,
           })
           .strict(),
         req.body,
       );
       await courseAccess(req.user, data.courseId, true);
+      validateSections(data);
       const test = await M.Test.create({
         ...data,
         ownerId: req.user._id,
@@ -488,6 +577,7 @@ function createLearning(auth) {
           a = await M.Attempt.create({
             ...query,
             courseId: test.courseId,
+            sections: test.sections,
             startedAt: new Date(),
             deadline: new Date(Date.now() + test.durationMinutes * 60000),
             questions: test.questions,
@@ -507,13 +597,18 @@ function createLearning(auth) {
           deadline: a.deadline,
           serverTime: new Date(),
           answers: a.savedAnswers || {},
-          questions: a.questions.map((q) => ({
-            id: q.id,
-            prompt: q.prompt,
-            options: q.options,
-            marks: q.marks,
-            negativeMarks: q.negativeMarks,
-          })),
+          section: activeSection(a),
+          questions: a.questions
+            .filter(
+              (q) => !a.sections?.length || activeSection(a).ids.includes(q.id),
+            )
+            .map((q) => ({
+              id: q.id,
+              prompt: q.prompt,
+              options: q.options,
+              marks: q.marks,
+              negativeMarks: q.negativeMarks,
+            })),
         },
       });
     }),
@@ -535,12 +630,19 @@ function createLearning(auth) {
       await courseAccess(req.user, a.courseId);
       if (Date.now() > a.deadline.getTime())
         fail(409, "The test deadline has passed.");
-      const ids = new Set(a.questions.map((q) => q.id));
-      for (const key of Object.keys(answers))
-        if (!ids.has(key)) fail(400, "Unknown question.");
+      const merged = mergeAnswers(a, answers);
+      const section = activeSection(a);
       await M.Attempt.updateOne(
         { _id: a._id, submittedAt: null, deadline: { $gt: new Date() } },
-        { $set: { savedAnswers: answers } },
+        {
+          $set: section
+            ? Object.fromEntries(
+                Object.entries(merged)
+                  .filter(([key]) => section.ids.includes(key))
+                  .map(([key, value]) => [`savedAnswers.${key}`, value]),
+              )
+            : { savedAnswers: merged },
+        },
       );
       res.json({ success: true });
     }),
@@ -563,7 +665,7 @@ function createLearning(auth) {
       const expired = Date.now() > a.deadline.getTime() + 5000;
       const result = grade(
         a.questions,
-        expired ? a.savedAnswers || {} : answers,
+        expired ? a.savedAnswers || {} : mergeAnswers(a, answers),
       );
       result.expired = expired;
       const saved = await M.Attempt.findOneAndUpdate(

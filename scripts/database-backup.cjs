@@ -8,7 +8,19 @@ serverRequire("dotenv").config({
 const mongoose = serverRequire("mongoose");
 const { backup, restore } = require("../server/lib/backup");
 async function main() {
-  const [action, file] = process.argv.slice(2);
+  const [action, requestedFile] = process.argv.slice(2);
+  let file = requestedFile;
+  if (action === "backup" && !file) {
+    const path = require("node:path"),
+      fs = require("node:fs/promises");
+    const directory = path.resolve(
+      path.join(__dirname, "../server"),
+      process.env.BACKUP_DIRECTORY || "./backups",
+    );
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    file = path.join(directory, `adhayan-${stamp}.adhb`);
+  }
   if (!["backup", "restore"].includes(action) || !file)
     throw Error(
       "Use: node scripts/database-backup.cjs backup|restore <encrypted-file>",

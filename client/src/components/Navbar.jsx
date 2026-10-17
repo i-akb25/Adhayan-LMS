@@ -114,18 +114,18 @@ export default function Navbar() {
             </nav>
 
             {/* --- DESKTOP ACTION BUTTONS --- */}
-            <div className="hidden lg:flex items-center space-x-3">
+            <div className="hidden xl:flex items-center space-x-3">
               <Link
                 to={user ? "/dashboard" : "/login"}
                 className="px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-full"
               >
-                Login
+                {user ? "Dashboard" : "Login"}
               </Link>
               <Link
                 to={user ? "/settings" : "/register"}
                 className="px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-full"
               >
-                Register
+                {user ? "Account settings" : "Register"}
               </Link>
               <Link
                 to="/demo"
@@ -137,7 +137,7 @@ export default function Navbar() {
             </div>
 
             {/* --- MOBILE MENU TOGGLE --- */}
-            <div className="flex lg:hidden items-center gap-4">
+            <div className="flex xl:hidden items-center gap-4">
               <Link
                 to="/demo"
                 className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-full shadow-md sm:hidden"
@@ -165,7 +165,7 @@ export default function Navbar() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="fixed inset-x-0 top-[72px] z-40 lg:hidden bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-2xl h-[calc(100vh-72px)] overflow-y-auto"
+            className="fixed inset-x-0 top-[72px] z-40 xl:hidden bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-2xl h-[calc(100vh-72px)] overflow-y-auto"
           >
             <div className="px-4 py-6 flex flex-col h-full">
               {/* Links */}
@@ -197,13 +197,13 @@ export default function Navbar() {
                   to={user ? "/dashboard" : "/login"}
                   className="w-full px-5 py-4 text-center font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >
-                  Log In
+                  {user ? "Dashboard" : "Log In"}
                 </Link>
                 <Link
                   to={user ? "/settings" : "/register"}
                   className="w-full px-5 py-4 text-center font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >
-                  Create Account
+                  {user ? "Account settings" : "Create Account"}
                 </Link>
                 <Link
                   to="/demo"

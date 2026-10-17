@@ -37,6 +37,7 @@ const publicUser = (u) => ({
   role: u.role,
   avatar: u.avatar || "",
   emailVerified: !!u.emailVerified,
+  isActive: u.isActive !== false,
   track: u.track || "",
   theme: u.theme || "system",
   bio: u.bio || "",
