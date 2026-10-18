@@ -830,7 +830,6 @@ export default function GlobalStudyHall({ currentUser = DEFAULT_USER }) {
         {renderRightSidebar()}
       </main>
 
-      {/* FUTURE API PLACEHOLDERS */}
     </div>
   );
 }

@@ -743,7 +743,7 @@ export default function StudyMaterials() {
               </div>
 
               <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
-                {/* Advanced Feature Placeholders */}
+                {/* Demonstration resource tools */}
                 <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl p-4 flex gap-4">
                   <div className="p-3 bg-white dark:bg-slate-900 rounded-lg shadow-sm text-indigo-600 shrink-0">
                     <FiCpu size={24} />

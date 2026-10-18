@@ -227,6 +227,7 @@ const Submission = model(
     content: String,
     grade: { type: Number, min: 0, max: 100 },
     feedback: String,
+    fileIds: [Schema.Types.ObjectId],
   },
   [[{ assignmentId: 1, studentId: 1 }, { unique: true }]],
   "adhayan_submissions",
@@ -272,6 +273,8 @@ const Room = model(
     name: String,
     description: String,
     members: [Schema.Types.ObjectId],
+    blockedMembers: [Schema.Types.ObjectId],
+    scheduledClassId: optionalId,
     closed: { type: Boolean, default: false },
   },
   [
@@ -325,6 +328,8 @@ const PrivateFile = model(
   {
     courseId: id,
     ownerId: id,
+    scope: { type: String, enum: ["course", "submission"], default: "course" },
+    assignmentId: optionalId,
     name: String,
     title: String,
     mime: String,
@@ -339,7 +344,45 @@ const PrivateFile = model(
   ],
   "adhayan_private_files",
 );
+const ScheduledClass = model(
+  "ScheduledClass",
+  {
+    courseId: id,
+    ownerId: id,
+    roomId: id,
+    title: String,
+    startsAt: Date,
+    endsAt: Date,
+    cancelled: { type: Boolean, default: false },
+  },
+  [[{ courseId: 1, startsAt: 1 }, {}]],
+  "adhayan_classes",
+);
+const RoomReport = model(
+  "RoomReport",
+  {
+    roomId: id,
+    messageId: id,
+    reporterId: id,
+    reason: String,
+    status: {
+      type: String,
+      enum: ["open", "resolved", "dismissed"],
+      default: "open",
+    },
+    resolvedBy: optionalId,
+    resolvedAt: Date,
+    action: String,
+  },
+  [
+    [{ reporterId: 1, messageId: 1 }, { unique: true }],
+    [{ status: 1, createdAt: -1 }, {}],
+  ],
+  "adhayan_room_reports",
+);
 module.exports = {
+  ScheduledClass,
+  RoomReport,
   Institution,
   Membership,
   PrivateFile,

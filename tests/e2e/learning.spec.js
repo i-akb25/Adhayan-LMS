@@ -184,3 +184,152 @@ test("teacher imports, reviews, publishes and uploads private course material", 
     .click();
   await expect(card.first()).toContainText("Published");
 });
+
+test("student submits a private attachment, teacher grades it, and class links open the right room", async ({
+  page,
+  browser,
+}) => {
+  const name = `Workflow Learner ${test.info().project.name}`;
+  const chatContent = `Browser workflow message ${test.info().project.name}.`;
+  const studentContext = await browser.newContext({
+    baseURL: "http://localhost:5173",
+    viewport: page.viewportSize() || undefined,
+  });
+  const student = await studentContext.newPage();
+  const errors = [];
+  student.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (e) => errors.push(e.message));
+  try {
+    const registered = await studentContext.request.post(
+      "http://localhost:5173/api/auth/register",
+      {
+        headers: { Origin: "http://localhost:5173" },
+        data: {
+          name,
+          email: `workflow-${test.info().project.name}-${Date.now()}@example.test`,
+          password: "TestOnlyPassword123!",
+          role: "Student",
+          consent: true,
+          profileData: { class: "11", target: "JEE" },
+        },
+      },
+    );
+    expect(registered.status()).toBe(201);
+    await student.goto("/learn");
+    const course = student.locator("article").filter({
+      has: student.getByRole("heading", { name: "E2E Algebra", exact: true }),
+    });
+    await course.getByRole("button", { name: "Enrol", exact: true }).click();
+    await student.goto("/assignments");
+    await student
+      .getByRole("combobox", { name: "Course", exact: true })
+      .selectOption({ label: "E2E Algebra" });
+    await student
+      .getByText("Attach private files (optional)", { exact: true })
+      .click();
+    await student
+      .getByLabel("Assignment attachment", { exact: true })
+      .setInputFiles({
+        name: "solution.pdf",
+        mimeType: "application/pdf",
+        buffer: Buffer.from("%PDF-1.4\nStudent browser work\n%%EOF"),
+      });
+    await student
+      .getByRole("button", {
+        name: "Upload assignment attachment",
+        exact: true,
+      })
+      .click();
+    await student
+      .getByRole("checkbox", { name: "Include solution.pdf", exact: true })
+      .check();
+    await student
+      .getByRole("textbox", { name: "My submission", exact: true })
+      .fill("Subtract two from each side, so x = 3.");
+    await student
+      .getByRole("button", { name: "Submit assignment", exact: true })
+      .click();
+    await expect(
+      student.getByText("Awaiting review", { exact: true }),
+    ).toBeVisible();
+    await page.goto("/login");
+    await page.locator('input[name="email"]').fill("teacher@example.test");
+    await page.locator('input[name="password"]').fill("TestOnlyPassword123!");
+    await page.getByRole("button", { name: "Sign In", exact: true }).click();
+    await expect(page).toHaveURL(/teacher\/dashboard/);
+    await page.goto("/assignments");
+    await page
+      .getByRole("combobox", { name: "Course", exact: true })
+      .selectOption({ label: "E2E Algebra" });
+    await page
+      .getByRole("button", { name: "Review submissions", exact: true })
+      .click();
+    const review = page
+      .locator("form")
+      .filter({ has: page.getByRole("heading", { name, exact: true }) });
+    await review
+      .getByRole("spinbutton", { name: "Grade (0–100)", exact: true })
+      .fill("88");
+    await review
+      .getByRole("textbox", { name: "Feedback", exact: true })
+      .fill("Clear method.");
+    const downloading = page.waitForEvent("download");
+    await review
+      .getByRole("button", { name: "Download student attachment", exact: true })
+      .click();
+    expect((await downloading).suggestedFilename()).toBe("solution.pdf");
+    await review
+      .getByRole("button", { name: "Save review", exact: true })
+      .click();
+    await expect(page.getByRole("status")).toContainText("Review saved.");
+    await student.reload();
+    await student
+      .getByRole("combobox", { name: "Course", exact: true })
+      .selectOption({ label: "E2E Algebra" });
+    await expect(
+      student.getByText("Grade: 88/100", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      student.getByText("Clear method.", { exact: true }),
+    ).toBeVisible();
+    await student.goto("/classes");
+    await student
+      .getByRole("combobox", { name: "Course", exact: true })
+      .selectOption({ label: "E2E Algebra" });
+    const calendar = student.waitForEvent("download");
+    await student
+      .getByRole("button", { name: "Download calendar event", exact: true })
+      .click();
+    expect((await calendar).suggestedFilename()).toBe("adhayan-class.ics");
+    await student
+      .getByRole("link", { name: "Open class room", exact: true })
+      .click();
+    await expect(student).toHaveURL(/study-room\/[a-f0-9]{24}/);
+    await expect(
+      student.getByRole("heading", { name: "E2E Live", exact: true }).last(),
+    ).toBeVisible();
+    await student
+      .getByRole("textbox", { name: "Message", exact: true })
+      .fill(chatContent);
+    await student.getByRole("button", { name: "Send", exact: true }).click();
+    const message = student
+      .locator("article")
+      .filter({ hasText: chatContent })
+      .last();
+    await message.getByText("Report message", { exact: true }).click();
+    await message
+      .getByRole("textbox", { name: "Reason for report", exact: true })
+      .fill("Test report for operator review.");
+    await message
+      .getByRole("button", { name: "Send report", exact: true })
+      .click();
+    await expect(student.getByRole("status")).toContainText("Report submitted");
+    await student.screenshot({
+      path: test.info().outputPath("scheduled-room.png"),
+      fullPage: true,
+    });
+    expect(errors).toEqual([]);
+  } finally {
+    await studentContext.close();
+  }
+});

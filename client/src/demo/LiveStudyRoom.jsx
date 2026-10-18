@@ -164,7 +164,7 @@ export default function LiveStudyRoom({
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState(CHAT_MESSAGES);
 
-  // Audio/Video/Screen States (WebRTC Placeholders)
+  // Demonstration media controls
   const [isMicOn, setIsMicOn] = useState(false);
   const [isCamOn, setIsCamOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -855,7 +855,6 @@ export default function LiveStudyRoom({
           </div>
         </div>
 
-        {/* FUTURE API PLACEHOLDERS */}
       </main>
     </div>
   );

@@ -330,13 +330,13 @@ export default function VideoConferenceRoom({
 
     return (
       <div className="flex-1 bg-black p-2 sm:p-4 overflow-y-auto custom-scrollbar flex flex-col gap-2 relative">
-        {/* FUTURE WEBRTC PLACEHOLDERS */}
+
 
         {layoutMode === "speaker" && (
           <div className="flex-1 flex flex-col gap-2 h-full">
             {/* Main Speaker */}
             <div className="flex-1 w-full relative rounded-2xl overflow-hidden bg-slate-900 border-2 border-slate-800 shadow-xl group">
-              {/* Speaker Video Placeholder */}
+              {/* Demonstration speaker tile */}
               <div className="absolute inset-0 flex items-center justify-center">
                 {mainSpeaker.isCamOn ? (
                   <div className="text-slate-600 flex flex-col items-center">
@@ -906,7 +906,6 @@ export default function VideoConferenceRoom({
       {/* 3. BOTTOM CONTROL BAR */}
       {renderControls()}
 
-      {/* FUTURE API PLACEHOLDERS */}
     </div>
   );
 }

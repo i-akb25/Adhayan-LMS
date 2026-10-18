@@ -8,11 +8,11 @@ import { FaRobot } from "react-icons/fa";
 // FUN FACTS
 // ==========================================
 const FUN_FACTS = [
-  "Students using AI study plans improve consistency by 35%.",
-  "Spaced repetition is the most effective way to retain information.",
-  "Taking a 5-minute break every hour boosts long-term focus.",
-  "Consistent study streaks are the #1 predictor of academic success.",
-  "Solving PYQs increases exam readiness score by up to 20%.",
+  "Review a worked example, then try a similar problem without looking at the solution.",
+  "Your learning workspace keeps saved notes alongside each lesson.",
+  "Teacher-authored assessments include answer explanations after submission.",
+  "Only verified parent links can access a student’s learning report.",
+  "You can export your saved learning records from account settings.",
 ];
 
 // ==========================================
@@ -21,6 +21,17 @@ const FUN_FACTS = [
 export default function NotFound() {
   const navigate = useNavigate();
   const [fact, setFact] = useState(FUN_FACTS[0]);
+  const [search, setSearch] = useState("");
+  const pages = [
+    ["Lessons", "/learn"],
+    ["Assignments", "/assignments"],
+    ["Study rooms", "/global-study-hall"],
+    ["Live classes", "/classes"],
+    ["Tests", "/diagnostic-test"],
+    ["Materials", "/study-materials"],
+    ["Account settings", "/settings"],
+    ["Contact", "/contact"],
+  ];
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -72,14 +83,32 @@ export default function NotFound() {
             </button>
           </div>
 
-          {/* Search Placeholder */}
+          {/* Search known workspace routes */}
           <div className="relative pt-4">
             <FiSearch className="absolute left-4 top-8 text-slate-400" />
             <input
               type="text"
               placeholder="Search for a feature or page..."
+              aria-label="Find a page"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-12 pr-4 py-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
             />
+            {search && (
+              <ul className="space-y-2 mt-3">
+                {pages
+                  .filter(([name]) =>
+                    name.toLowerCase().includes(search.toLowerCase()),
+                  )
+                  .map(([name, path]) => (
+                    <li key={path}>
+                      <Link className="underline" to={path}>
+                        {name}
+                      </Link>
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
         </motion.div>
 

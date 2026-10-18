@@ -65,8 +65,35 @@ const { realtime } = require("../server/modules/realtime");
       },
     ],
   });
+  await M.Assignment.create({
+    courseId: c._id,
+    ownerId: teacher._id,
+    title: "E2E Homework",
+    description: "Show a worked equation solution.",
+    dueAt: new Date(Date.now() + 86400000),
+  });
+  const classId = new mongoose.Types.ObjectId(),
+    classRoomId = new mongoose.Types.ObjectId();
+  await M.Room.create({
+    _id: classRoomId,
+    ownerId: teacher._id,
+    courseId: c._id,
+    scheduledClassId: classId,
+    name: "E2E Live",
+    members: [teacher._id],
+  });
+  await M.ScheduledClass.create({
+    _id: classId,
+    courseId: c._id,
+    ownerId: teacher._id,
+    roomId: classRoomId,
+    title: "E2E Live",
+    startsAt: new Date(Date.now() - 60000),
+    endsAt: new Date(Date.now() + 3600000),
+  });
   const app = createApp({
     NODE_ENV: "test",
+    API_RATE_LIMIT: 1200,
     secure: false,
     TRUST_PROXY: 0,
     origins: ["http://localhost:5173"],

@@ -1,3 +1,4 @@
+import { Assignments, ScheduledClasses, Moderation } from "./Completion";
 import {
   PrivateFiles,
   ContentImport,
@@ -125,14 +126,14 @@ export default function Workspace({ section = "courses", embedded = false }) {
     ) : section === "assessments" ? (
       <Assessments />
     ) : section === "assignments" ? (
-      <CourseWork mode="assignments" />
+      <Assignments />
+    ) : section === "classes" ? (
+      <ScheduledClasses />
     ) : section === "attendance" ? (
       <CourseWork mode="attendance" />
     ) : section === "materials" ? (
       <CourseWork mode="materials" />
-    ) : section === "rooms" ||
-      section === "discussions" ||
-      section === "classes" ? (
+    ) : section === "rooms" || section === "discussions" ? (
       <Rooms />
     ) : section === "parent" ? (
       <ParentConnect />
@@ -168,6 +169,7 @@ export default function Workspace({ section = "courses", embedded = false }) {
             ["/study-materials", "Materials"],
             ["/assignments", "Assignments"],
             ["/attendance", "Attendance"],
+            ["/classes", "Classes"],
             ["/global-study-hall", "Rooms"],
             ["/analytics", "Progress"],
             ["/parent-connect", "Parent Connect"],
@@ -840,10 +842,10 @@ function CourseSelect({ courses, onChange, value }) {
   );
 }
 function CourseWork({ mode }) {
-  const { user } = useAuth();
-  const teacher = ["Teacher", "Admin"].includes(user.role);
-  const courses = useResource("/courses", []);
-  const [courseId, setCourseId] = useState("");
+  const { user } = useAuth(),
+    teacher = ["Teacher", "Admin"].includes(user.role);
+  const courses = useResource("/courses", []),
+    [courseId, setCourseId] = useState("");
   const records = useResource(
     courseId ? `/${mode}?courseId=${courseId}` : null,
     [],
@@ -852,61 +854,56 @@ function CourseWork({ mode }) {
     teacher && courseId ? `/courses/${courseId}/students` : null,
     [],
   );
-  const [submissions, setSubmissions] = useState([]);
   const { busy, message, act } = useAction();
-  const create = (e) => {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    let data = { courseId };
-    if (mode === "materials")
-      data = {
-        ...data,
-        title: f.get("title"),
-        type: f.get("type"),
-        url: f.get("url"),
-      };
-    else if (mode === "assignments")
-      data = {
-        ...data,
-        title: f.get("title"),
-        description: f.get("description"),
-        dueAt: new Date(f.get("dueAt")).toISOString(),
-      };
-    else
-      data = {
-        ...data,
-        studentId: f.get("studentId"),
-        date: f.get("date"),
-        status: f.get("status"),
-      };
-    act(() => api.post(`/${mode}`, data), records.reload);
-  };
   return (
     <>
-      <ErrorNotice message={message || courses.error || records.error} />
+      <ErrorNotice
+        message={message || courses.error || records.error || students.error}
+      />
       <CourseSelect
         courses={list(courses.data).filter((c) => teacher || c.enrolled)}
         value={courseId}
-        onChange={(e) => {
-          setCourseId(e.target.value);
-          records.setData([]);
-          setSubmissions([]);
-        }}
+        onChange={(e) => setCourseId(e.target.value)}
       />
       {teacher && courseId && (
         <details className={box}>
           <summary className="font-bold">
-            {mode === "attendance" ? "Mark attendance" : "Add " + mode}
+            {mode === "attendance" ? "Mark attendance" : "Add resource link"}
           </summary>
-          <form onSubmit={create} className="space-y-3">
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const form = e.currentTarget,
+                f = new FormData(form);
+              const data =
+                mode === "attendance"
+                  ? {
+                      courseId,
+                      studentId: f.get("studentId"),
+                      date: f.get("date"),
+                      status: f.get("status"),
+                    }
+                  : {
+                      courseId,
+                      title: f.get("title"),
+                      type: f.get("type"),
+                      url: f.get("url"),
+                    };
+              act(async () => {
+                await api.post(`/${mode}`, data);
+                form.reset();
+              }, records.reload);
+            }}
+          >
             {mode === "attendance" ? (
               <>
                 <label>
                   Student
                   <select name="studentId" className={input} required>
-                    {list(students.data).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
+                    {list(students.data).map((student) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name}
                       </option>
                     ))}
                   </select>
@@ -915,61 +912,39 @@ function CourseWork({ mode }) {
                 <label>
                   Status
                   <select className={input} name="status">
-                    {["Present", "Absent", "Late"].map((s) => (
-                      <option key={s}>{s}</option>
+                    {["Present", "Absent", "Late"].map((status) => (
+                      <option key={status}>{status}</option>
                     ))}
                   </select>
                 </label>
               </>
             ) : (
               <>
-                <Field label="Title" name="title" required />
-                {mode === "materials" ? (
-                  <>
-                    <label>
-                      Type
-                      <select className={input} name="type">
-                        {["PDF", "Video", "Link"].map((s) => (
-                          <option key={s}>{s}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <Field
-                      label="HTTPS resource URL"
-                      name="url"
-                      type="url"
-                      required
-                    />
-                    <p className="text-sm text-slate-500">
-                      Resources are linked. Direct file uploads are not enabled.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <label>
-                      Description
-                      <textarea
-                        className={input}
-                        name="description"
-                        required
-                        rows={5}
-                      />
-                    </label>
-                    <Field
-                      label="Deadline"
-                      name="dueAt"
-                      type="datetime-local"
-                      required
-                    />
-                  </>
-                )}
+                <Field label="Title" name="title" required maxLength={200} />
+                <label>
+                  Resource type
+                  <select name="type" className={input}>
+                    {["PDF", "Video", "Link"].map((type) => (
+                      <option key={type}>{type}</option>
+                    ))}
+                  </select>
+                </label>
+                <Field
+                  label="HTTPS resource URL"
+                  name="url"
+                  type="url"
+                  required
+                />
               </>
             )}
-            <button disabled={busy} className={button}>
+            <button className={button} disabled={busy}>
               Save
             </button>
           </form>
         </details>
+      )}
+      {mode === "materials" && courseId && (
+        <PrivateFiles courseId={courseId} teacher={teacher} />
       )}
       {!courseId ? (
         <Empty>Select an enrolled course.</Empty>
@@ -977,12 +952,16 @@ function CourseWork({ mode }) {
         <Empty />
       ) : (
         records.data.map((item) => (
-          <article key={item.id} className={box}>
+          <article className={box} key={item.id}>
             <h2 className="text-xl font-bold">
               {item.title || `${item.date}: ${item.status}`}
             </h2>
-            {item.description && (
-              <p className="whitespace-pre-wrap">{item.description}</p>
+            {mode === "attendance" && teacher && (
+              <p>
+                Student:{" "}
+                {list(students.data).find((s) => s.id === item.studentId)
+                  ?.name || item.studentId}
+              </p>
             )}
             {item.url && (
               <a
@@ -994,83 +973,20 @@ function CourseWork({ mode }) {
                 Open {item.type}
               </a>
             )}
-            {item.dueAt && <p>Due: {new Date(item.dueAt).toLocaleString()}</p>}
-            {mode === "assignments" &&
-              (teacher ? (
-                <button
-                  className={button}
-                  onClick={() =>
-                    act(async () =>
-                      setSubmissions(
-                        (await api.get(`/assignments/${item.id}/submissions`))
-                          .data,
-                      ),
-                    )
-                  }
-                >
-                  Review submissions
-                </button>
-              ) : (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const content = new FormData(e.currentTarget).get(
-                      "content",
-                    );
-                    act(() =>
-                      api.post(`/assignments/${item.id}/submit`, { content }),
-                    );
-                  }}
-                >
-                  <label>
-                    My submission
-                    <textarea
-                      name="content"
-                      className={input}
-                      rows={5}
-                      required
-                      maxLength={20000}
-                    />
-                  </label>
-                  <button className={button} disabled={busy}>
-                    Submit assignment
-                  </button>
-                </form>
-              ))}
+            {teacher && mode === "materials" && (
+              <button
+                className="ml-3 underline"
+                disabled={busy}
+                onClick={() =>
+                  act(() => api.delete(`/materials/${item.id}`), records.reload)
+                }
+              >
+                Delete resource link
+              </button>
+            )}
           </article>
         ))
       )}
-      {submissions.map((s) => (
-        <form
-          key={s.id}
-          className={box}
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            act(() =>
-              api.patch(`/submissions/${s.id}`, {
-                grade: Number(f.get("grade")),
-                feedback: f.get("feedback"),
-              }),
-            );
-          }}
-        >
-          <p>Student: {s.studentId}</p>
-          <p className="whitespace-pre-wrap">{s.content}</p>
-          <Field
-            label="Grade (0–100)"
-            name="grade"
-            type="number"
-            min="0"
-            max="100"
-            defaultValue={s.grade}
-          />
-          <Field label="Feedback" name="feedback" defaultValue={s.feedback} />
-          <button disabled={busy} className={button}>
-            Save review
-          </button>
-        </form>
-      ))}
     </>
   );
 }
@@ -1298,22 +1214,50 @@ function Plans() {
 }
 function Rooms() {
   const { user } = useAuth();
+  const { roomId: requestedRoom } = useParams();
+  const [joinError, setJoinError] = useState(""),
+    [reportNotice, setReportNotice] = useState("");
   const rooms = useResource("/rooms/active", []);
   const [room, setRoom] = useState(null),
     [messages, setMessages] = useState([]);
   const { busy, message, act } = useAction();
+  useEffect(() => {
+    if (!requestedRoom) return;
+    let cancelled = false;
+    api
+      .post(`/rooms/${requestedRoom}/join`, {})
+      .then(() => api.get(`/rooms/${requestedRoom}`))
+      .then((r) => {
+        if (!cancelled) {
+          setRoom(r.data);
+          setJoinError("");
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setJoinError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedRoom]);
+  const messageSequence = useRef(0);
   const load = useCallback(async () => {
-    if (room) setMessages((await api.get(`/rooms/${room.id}/messages`)).data);
+    if (!room) return;
+    const current = ++messageSequence.current;
+    const response = await api.get(`/rooms/${room.id}/messages`);
+    if (current === messageSequence.current) setMessages(response.data);
   }, [room]);
   useEffect(() => {
     if (!room) return;
     let stopped = false;
     const poll = async () => {
+      const current = ++messageSequence.current;
       try {
         const r = await api.get(`/rooms/${room.id}/messages`);
-        if (!stopped) setMessages(r.data);
+        if (!stopped && current === messageSequence.current)
+          setMessages(r.data);
       } catch (e) {
-        if (!stopped) {
+        if (!stopped && current === messageSequence.current) {
           setRoom(null);
           setMessages([]);
         }
@@ -1328,7 +1272,8 @@ function Rooms() {
   }, [room]);
   return (
     <>
-      <ErrorNotice message={message || rooms.error} />
+      <ErrorNotice message={message || joinError || rooms.error} />
+      {reportNotice && <p role="status">{reportNotice}</p>}
       {user.role !== "Parent" && (
         <details className={box}>
           <summary className="font-bold">Create study room</summary>
@@ -1407,10 +1352,69 @@ function Rooms() {
                 className="max-h-96 overflow-auto space-y-3"
               >
                 {messages.map((m) => (
-                  <p key={m.id} className="whitespace-pre-wrap break-words">
-                    <strong>{m.name}: </strong>
-                    {m.content}
-                  </p>
+                  <article
+                    key={m.id}
+                    className="whitespace-pre-wrap break-words border-b pb-3"
+                  >
+                    <p>
+                      <strong>{m.name}: </strong>
+                      {m.content}
+                    </p>
+                    {(String(m.userId) === user.id ||
+                      String(room.ownerId) === user.id ||
+                      user.role === "Admin") && (
+                      <button
+                        className="underline text-sm"
+                        disabled={busy}
+                        onClick={() =>
+                          act(
+                            () =>
+                              api.delete(`/rooms/${room.id}/messages/${m.id}`),
+                            load,
+                          )
+                        }
+                      >
+                        Delete message
+                      </button>
+                    )}
+                    <details>
+                      <summary className="text-sm cursor-pointer">
+                        Report message
+                      </summary>
+                      <form
+                        className="space-y-2"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const form = e.currentTarget,
+                            reason = new FormData(form).get("reason");
+                          act(async () => {
+                            await api.post(`/rooms/${room.id}/reports`, {
+                              messageId: m.id,
+                              reason,
+                            });
+                            form.reset();
+                            setReportNotice(
+                              "Report submitted to the platform administrator.",
+                            );
+                          });
+                        }}
+                      >
+                        <p className="text-sm text-slate-500">
+                          The administrator can inspect this reported message.
+                          Avoid including additional personal information.
+                        </p>
+                        <Field
+                          label="Reason for report"
+                          name="reason"
+                          required
+                          maxLength={1000}
+                        />
+                        <button className={button} disabled={busy}>
+                          Send report
+                        </button>
+                      </form>
+                    </details>
+                  </article>
                 ))}
               </div>
               <form
@@ -1609,7 +1613,12 @@ function Account() {
   );
 }
 function Administration() {
-  const users = useResource("/admin/users", []),
+  const [page, setPage] = useState(1),
+    [query, setQuery] = useState("");
+  const users = useResource(
+      `/admin/users/page?page=${page}&q=${encodeURIComponent(query)}`,
+      [],
+    ),
     audit = useResource("/admin/audit", []);
   const { busy, message, act } = useAction();
   return (
@@ -1617,6 +1626,7 @@ function Administration() {
       <ErrorNotice message={message || users.error || audit.error} />
       <Readiness />
       <Institutions />
+      <Moderation />
       <form
         className={box}
         onSubmit={(e) => {
@@ -1659,6 +1669,37 @@ function Administration() {
       </form>
       <article className={box}>
         <h2 className="text-xl font-bold">Users and permissions</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPage(1);
+            setQuery(new FormData(e.currentTarget).get("q"));
+          }}
+        >
+          <Field
+            label="Search users by name or email"
+            name="q"
+            maxLength={100}
+          />
+          <button className={button}>Search users</button>
+        </form>
+        <div className="flex gap-3">
+          <button
+            className="underline"
+            disabled={page === 1}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Previous users
+          </button>
+          <span>Page {page}</span>
+          <button
+            className="underline"
+            disabled={list(users.data).length < 25}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next users
+          </button>
+        </div>
         {list(users.data).map((u) => (
           <div
             className="border-b border-slate-200 dark:border-slate-800 py-3"

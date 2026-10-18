@@ -87,7 +87,9 @@ function createApp(config = loadConfig()) {
         !req.is("application/json") &&
         !(
           req.method === "POST" &&
-          /^\/api\/courses\/[a-f\d]{24}\/files$/i.test(req.path) &&
+          /^\/api\/(?:courses|assignments)\/[a-f\d]{24}\/files$/i.test(
+            req.path,
+          ) &&
           req.is("application/octet-stream")
         )
       )
@@ -133,7 +135,7 @@ function createApp(config = loadConfig()) {
         ? { store: new MongoRateStore(config.JWT_REFRESH_SECRET, "api") }
         : {}),
       windowMs: 15 * 60000,
-      limit: 300,
+      limit: config.API_RATE_LIMIT || 300,
       handler: (_req, res) =>
         res.status(429).json({
           success: false,
@@ -195,6 +197,7 @@ function createApp(config = loadConfig()) {
     require("./modules/operations").createOperations(auth, config),
   );
   app.use("/api", createLearning(auth));
+  app.use("/api", require("./modules/completion").createCompletion(auth));
   const path = require("node:path"),
     fs = require("node:fs");
   const webRoot = path.join(__dirname, "../client/dist");
