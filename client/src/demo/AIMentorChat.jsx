@@ -750,7 +750,6 @@ export default function AIMentorChat({
       {/* RIGHT SIDEBAR */}
       {renderRightSidebar()}
 
-      {/* FUTURE API PLACEHOLDERS */}
     </div>
   );
 }

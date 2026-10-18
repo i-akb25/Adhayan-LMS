@@ -1,3 +1,4 @@
+import DemoTrend from "./DemoTrend";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -375,8 +376,8 @@ export default function AttendanceTracker() {
           {/* DYNAMIC ROLE VIEWS */}
           {renderDashboardContent()}
 
-          {/* EXTRA ADVANCED FEATURES PLACEHOLDERS (ALL ROLES) */}
-          {/* Architecture prepared for future hardware/software integrations */}
+          {/* ATTENDANCE WORKFLOWS */}
+          {/* Capabilities provided by the live attendance workspace */}
           <motion.section
             variants={fadeUp}
             className="border-t border-slate-200 dark:border-slate-800 pt-8 mt-12"
@@ -386,16 +387,16 @@ export default function AttendanceTracker() {
                 <FiCpu size={20} />
               </div>
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                Next-Gen Tracking Integrations
+                Attendance workspace features
               </h2>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {[
-                { name: "QR Scan Node", icon: BsQrCodeScan },
-                { name: "Face Recognition", icon: FiCamera },
-                { name: "Geofencing (GPS)", icon: FiMapPin },
-                { name: "App Biometrics", icon: FiSmartphone },
-                { name: "Live Video Sync", icon: FiActivity },
+                { name: "Teacher marking", icon: BsQrCodeScan },
+                { name: "Student history", icon: FiCamera },
+                { name: "Course access", icon: FiMapPin },
+                { name: "Parent reports", icon: FiSmartphone },
+                { name: "Account export", icon: FiActivity },
               ].map((tech, i) => (
                 <div
                   key={i}
@@ -406,7 +407,7 @@ export default function AttendanceTracker() {
                     {tech.name}
                   </span>
                   <span className="text-[10px] mt-2 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-400">
-                    Coming Soon
+                    Available in workspace
                   </span>
                 </div>
               ))}
@@ -798,10 +799,7 @@ const AdminView = () => (
       <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
         Institutional Trends
       </h3>
-      <p className="text-sm text-slate-500 max-w-md">
-        Chart Placeholder: A multi-line graph comparing Grade 9, 10, 11, and 12
-        attendance rates over the current semester.
-      </p>
+      <DemoTrend attendance />
     </motion.section>
 
     {/* EXPORT & REPORTS */}

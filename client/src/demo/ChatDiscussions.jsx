@@ -160,7 +160,7 @@ const pulseGlow = {
  * @param {Object} currentUser - User details
  * @param {string} userRole - 'student', 'teacher', 'parent', 'admin'
  * @param {string} roomId - Specific room to join (optional)
- * @param {Object} socket - Future Socket.io instance placeholder
+ * @param {Object} socket - Demonstration-only discussion data
  */
 export default function ChatDiscussions({
   currentUser = DEFAULT_USER,
@@ -762,7 +762,6 @@ export default function ChatDiscussions({
       {/* Create Post Modal */}
       {renderCreateModal()}
 
-      {/* FUTURE API PLACEHOLDERS */}
     </div>
   );
 }

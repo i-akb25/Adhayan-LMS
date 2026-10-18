@@ -156,7 +156,7 @@ export default function App() {
               />
               <Route
                 path="/live-class"
-                element={<Navigate to="/global-study-hall" replace />}
+                element={<Navigate to="/classes" replace />}
               />
               <Route
                 path="/legal/privacy-policy"
@@ -194,7 +194,7 @@ export default function App() {
               />
               <Route
                 path="/live-classes"
-                element={<Navigate to="/global-study-hall" replace />}
+                element={<Navigate to="/classes" replace />}
               />
               <Route
                 path="/admin/settings"
@@ -229,6 +229,7 @@ export default function App() {
                 "/study-materials": ["materials", DemoMaterials],
                 "/diagnostic-test": ["assessments", DemoTest],
                 "/assignments": ["assignments"],
+                "/classes": ["classes"],
                 "/analytics": ["analytics"],
                 "/settings": ["settings", DemoSettings],
                 "/profile": ["settings", DemoProfile],

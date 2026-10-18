@@ -100,6 +100,9 @@ async function studentAccess(user, studentId) {
 async function roomAccess(user, roomId) {
   const room = await M.Room.findById(id(roomId));
   if (!room || room.closed) fail(404, "Room not found.");
+  if (room.blockedMembers?.some((m) => same(m, user._id)))
+    fail(403, "Room access has been removed.");
+  await require("./completion").classAccess(user, room);
   if (!room.members.some((m) => same(m, user._id)))
     fail(403, "Join the room first.");
   if (
@@ -715,7 +718,22 @@ function createLearning(auth) {
       const courseId = id(String(req.query.courseId || ""));
       await courseAccess(req.user, courseId);
       const data = await M.Assignment.find({ courseId }).limit(100);
-      res.json({ success: true, data: data.map(output) });
+      const mine =
+        req.user.role === "student"
+          ? await M.Submission.find({
+              assignmentId: { $in: data.map((a) => a._id) },
+              studentId: req.user._id,
+            })
+          : [];
+      res.json({
+        success: true,
+        data: data.map((a) => ({
+          ...output(a),
+          mySubmission: output(
+            mine.find((sub) => same(sub.assignmentId, a._id)),
+          ),
+        })),
+      });
     }),
   );
   r.post(
@@ -746,8 +764,13 @@ function createLearning(auth) {
     "/assignments/:id/submit",
     student,
     wrap(async (req, res) => {
-      const { content } = parse(
-        z.object({ content: text(20000) }).strict(),
+      const { content, fileIds } = parse(
+        z
+          .object({
+            content: text(20000),
+            fileIds: z.array(objectId).max(3).default([]),
+          })
+          .strict(),
         req.body,
       );
       const a = await M.Assignment.findById(id(req.params.id));
@@ -755,6 +778,18 @@ function createLearning(auth) {
       await courseAccess(req.user, a.courseId);
       if (a.dueAt && Date.now() > a.dueAt.getTime())
         fail(409, "The assignment deadline has passed.");
+      if (new Set(fileIds).size !== fileIds.length)
+        fail(400, "Duplicate attachments.");
+      if (
+        fileIds.length &&
+        (await M.PrivateFile.countDocuments({
+          _id: { $in: fileIds },
+          ownerId: req.user._id,
+          assignmentId: a._id,
+          scope: "submission",
+        })) !== fileIds.length
+      )
+        fail(403, "Attachment access denied.");
       if (
         await M.Submission.exists({
           assignmentId: a._id,
@@ -769,6 +804,7 @@ function createLearning(auth) {
             assignmentId: a._id,
             studentId: req.user._id,
             content,
+            fileIds,
           }),
         ),
       });
@@ -781,11 +817,19 @@ function createLearning(auth) {
       const a = await M.Assignment.findById(id(req.params.id));
       if (!a) fail(404, "Assignment not found.");
       await courseAccess(req.user, a.courseId, true);
+      const submissions = await M.Submission.find({
+        assignmentId: a._id,
+      }).limit(200);
+      const users = await M.User.find({
+        _id: { $in: submissions.map((s) => s.studentId) },
+      }).select("name firstName");
       res.json({
         success: true,
-        data: (await M.Submission.find({ assignmentId: a._id }).limit(200)).map(
-          output,
-        ),
+        data: submissions.map((s) => ({
+          ...output(s),
+          studentName:
+            users.find((u) => same(u._id, s.studentId))?.name || "Student",
+        })),
       });
     }),
   );
@@ -808,6 +852,13 @@ function createLearning(auth) {
       await courseAccess(req.user, a.courseId, true);
       Object.assign(s, data);
       await s.save();
+      await require("../lib/notifications")
+        .notify(
+          s.studentId,
+          "Assignment reviewed",
+          `${a.title} · ${s.grade}/100`,
+        )
+        .catch(() => process.stderr.write("Review notification unavailable\n"));
       res.json({ success: true, data: output(s) });
     }),
   );
@@ -1086,6 +1137,7 @@ function createLearning(auth) {
         data: data.map((room) => {
           const o = output(room);
           delete o.members;
+          delete o.blockedMembers;
           return {
             ...o,
             users: room.members.length,
@@ -1135,6 +1187,9 @@ function createLearning(auth) {
     wrap(async (req, res) => {
       const room = await M.Room.findById(id(req.params.id));
       if (!room || room.closed) fail(404, "Room not found.");
+      if (room.blockedMembers?.some((m) => same(m, req.user._id)))
+        fail(403, "Room access has been removed.");
+      await require("./completion").classAccess(req.user, room);
       if (
         room.kind === "parent-teacher" &&
         !room.members.some((m) => same(m, req.user._id))
@@ -1180,6 +1235,22 @@ function createLearning(auth) {
         fail(403, "Room access denied.");
       room.closed = true;
       await room.save();
+      if (room.scheduledClassId) {
+        const scheduled = await M.ScheduledClass.findOneAndUpdate(
+          { _id: room.scheduledClassId, cancelled: false },
+          { $set: { cancelled: true } },
+        );
+        if (scheduled)
+          await require("../lib/notifications")
+            .notifyCourse(
+              scheduled.courseId,
+              "Class cancelled",
+              scheduled.title,
+            )
+            .catch(() =>
+              process.stderr.write("Class notifications unavailable\n"),
+            );
+      }
       res.json({ success: true });
     }),
   );
@@ -1307,25 +1378,31 @@ function createLearning(auth) {
           .strict(),
         req.body,
       );
-      const users = await M.User.find({
+      let batch = [],
+        recipients = 0;
+      const filter = {
         isActive: true,
         isDeleted: { $ne: true },
         ...(data.audience === "all" ? {} : { role: data.audience }),
-      })
-        .select("_id")
-        .limit(1000);
-      if (users.length)
-        await M.Notification.insertMany(
-          users.map((user) => ({
-            userId: user._id,
-            title: data.title,
-            message: data.message,
-            category: "Announcements",
-          })),
-        );
-      res
-        .status(201)
-        .json({ success: true, data: { recipients: users.length } });
+      };
+      for await (const user of M.User.find(filter).select("_id").cursor()) {
+        batch.push({
+          userId: user._id,
+          title: data.title,
+          message: data.message,
+          category: "Announcements",
+        });
+        if (batch.length === 200) {
+          await M.Notification.insertMany(batch);
+          recipients += batch.length;
+          batch = [];
+        }
+      }
+      if (batch.length) {
+        await M.Notification.insertMany(batch);
+        recipients += batch.length;
+      }
+      res.status(201).json({ success: true, data: { recipients } });
     }),
   );
   r.get(

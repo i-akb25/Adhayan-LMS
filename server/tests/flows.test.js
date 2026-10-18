@@ -1037,3 +1037,215 @@ test("SMTP verification/reset links are single-use and do not expose tokens in A
     }
   }
 });
+
+test("assignment attachments stay private, bind to one assignment, and remain immutable after submission", async () => {
+  process.env.FILE_STORAGE_KEY = "d".repeat(64);
+  const t = await teacher(),
+    s = await register(),
+    peer = await register(),
+    c = await course(t);
+  for (const u of [s, peer])
+    await call(u, "post", `/api/courses/${c}/enroll`, {});
+  const assignment = await call(t, "post", "/api/assignments", {
+    courseId: c,
+    title: "Private work",
+    description: "Explain your solution.",
+    dueAt: new Date(Date.now() + 3600000).toISOString(),
+  });
+  const aid = assignment.body.data.id,
+    pdf = Buffer.from("%PDF-1.4\nPrivate student work\n%%EOF");
+  const uploaded = await request(app)
+    .post(`/api/assignments/${aid}/files`)
+    .query({ name: "solution.pdf", title: "My solution" })
+    .set("Origin", origin)
+    .set("Cookie", s.cookies)
+    .set("X-CSRF-Token", s.csrf)
+    .set("Content-Type", "application/octet-stream")
+    .send(pdf);
+  assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
+  const fid = uploaded.body.data.id;
+  assert.equal(
+    (await call(t, "get", `/api/files/${fid}/download`)).status,
+    403,
+  );
+  assert.equal((await call(peer, "get", `/api/files/${fid}/meta`)).status, 403);
+  assert.ok(
+    !(await call(s, "get", `/api/courses/${c}/files`)).body.data.some(
+      (f) => f.id === fid,
+    ),
+  );
+  assert.equal(
+    (
+      await call(peer, "post", `/api/assignments/${aid}/submit`, {
+        content: "Forged attachment",
+        fileIds: [fid],
+      })
+    ).status,
+    403,
+  );
+  const submitted = await call(s, "post", `/api/assignments/${aid}/submit`, {
+    content: "The worked solution is attached.",
+    fileIds: [fid],
+  });
+  assert.equal(submitted.status, 201, JSON.stringify(submitted.body));
+  assert.equal(
+    (await call(t, "get", `/api/files/${fid}/download`)).status,
+    200,
+  );
+  assert.equal(
+    (await call(peer, "get", `/api/files/${fid}/download`)).status,
+    403,
+  );
+  assert.equal((await call(s, "delete", `/api/files/${fid}`)).status, 409);
+  const graded = await call(
+    t,
+    "patch",
+    `/api/submissions/${submitted.body.data.id}`,
+    { grade: 88, feedback: "Clear method." },
+  );
+  assert.equal(graded.status, 200);
+  const mine = (await call(s, "get", `/api/assignments?courseId=${c}`)).body
+    .data[0];
+  assert.equal(mine.mySubmission.grade, 88);
+  assert.equal(mine.mySubmission.feedback, "Clear method.");
+  assert.equal(
+    (await call(peer, "get", `/api/assignments?courseId=${c}`)).body.data[0]
+      .mySubmission,
+    null,
+  );
+  assert.ok(
+    await M.Notification.exists({ userId: s.id, title: "Assignment reviewed" }),
+  );
+  delete process.env.FILE_STORAGE_KEY;
+});
+
+test("scheduled classes enforce course/time gates, escape calendar content and cancel rooms", async () => {
+  const t = await teacher(),
+    s = await register(),
+    other = await register(),
+    c = await course(t);
+  await call(s, "post", `/api/courses/${c}/enroll`, {});
+  const data = {
+    courseId: c,
+    title: "Algebra, class; with newline\nnot an ICS property",
+    startsAt: new Date(Date.now() + 3600000).toISOString(),
+    endsAt: new Date(Date.now() + 7200000).toISOString(),
+  };
+  const response = await call(t, "post", "/api/classes", data);
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const cls = response.body.data;
+  assert.equal(
+    (await call(other, "get", `/api/classes?courseId=${c}`)).status,
+    403,
+  );
+  assert.equal(
+    (await call(s, "post", `/api/rooms/${cls.roomId}/join`, {})).status,
+    409,
+  );
+  assert.equal(
+    (await call(t, "post", `/api/rooms/${cls.roomId}/join`, {})).status,
+    200,
+  );
+  const calendar = await call(s, "get", `/api/classes/${cls.id}/calendar`);
+  assert.equal(calendar.status, 200);
+  assert.match(calendar.text, /BEGIN:VCALENDAR/);
+  assert.ok(!calendar.text.includes("\nnot an ICS property"));
+  await M.ScheduledClass.updateOne(
+    { _id: cls.id },
+    {
+      $set: {
+        startsAt: new Date(Date.now() - 60000),
+        endsAt: new Date(Date.now() + 60000),
+      },
+    },
+  );
+  assert.equal(
+    (await call(s, "post", `/api/rooms/${cls.roomId}/join`, {})).status,
+    200,
+  );
+  assert.equal((await call(s, "get", `/api/rooms/${cls.roomId}`)).status, 200);
+  assert.equal(
+    (await call(t, "patch", `/api/classes/${cls.id}`, { cancelled: true }))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await call(s, "get", `/api/rooms/${cls.roomId}/messages`)).status,
+    404,
+  );
+  assert.equal(
+    (await call(t, "patch", `/api/classes/${cls.id}`, { cancelled: false }))
+      .status,
+    409,
+  );
+  assert.ok(
+    await M.Notification.exists({ userId: s.id, title: "Class cancelled" }),
+  );
+});
+
+test("reports require message membership, moderation blocks rejoining, and admin users paginate safely", async () => {
+  const owner = await register(),
+    s = await register(),
+    outsider = await register(),
+    admin = await register();
+  await M.User.updateOne({ _id: admin.id }, { $set: { role: "admin" } });
+  const rr = await call(owner, "post", "/api/rooms", {
+    name: "Moderated room",
+  });
+  const rid = rr.body.data.id;
+  await call(s, "post", `/api/rooms/${rid}/join`, {});
+  const msg = await call(s, "post", `/api/rooms/${rid}/messages`, {
+    content: "Reported message",
+  });
+  const mid = msg.body.data.id;
+  assert.equal(
+    (
+      await call(outsider, "post", `/api/rooms/${rid}/reports`, {
+        messageId: mid,
+        reason: "Forged report",
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await call(owner, "post", `/api/rooms/${rid}/reports`, {
+        messageId: mid,
+        reason: "Please review this message",
+      })
+    ).status,
+    201,
+  );
+  assert.equal((await call(s, "get", "/api/admin/reports")).status, 403);
+  const reports = await call(admin, "get", "/api/admin/reports");
+  assert.equal(reports.status, 200);
+  assert.equal(reports.body.data[0].message.content, "Reported message");
+  const review = await call(
+    admin,
+    "patch",
+    `/api/admin/reports/${reports.body.data[0].id}`,
+    { action: "remove-member" },
+  );
+  assert.equal(review.status, 200);
+  assert.equal(
+    (await call(s, "post", `/api/rooms/${rid}/join`, {})).status,
+    403,
+  );
+  assert.equal(
+    (await call(s, "get", `/api/rooms/${rid}/messages`)).status,
+    403,
+  );
+  const users = await call(
+    admin,
+    "get",
+    "/api/admin/users/page?page=1&limit=2",
+  );
+  assert.equal(users.status, 200);
+  assert.equal(users.body.data.length, 2);
+  assert.ok(users.body.pagination.total > 2);
+  assert.equal(
+    (await call(admin, "get", "/api/admin/users/page?q=%5B.*")).body.pagination
+      .total,
+    0,
+  );
+});

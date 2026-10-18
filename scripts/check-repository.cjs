@@ -10,7 +10,7 @@ for (const f of files) {
     bad.push(f);
   if (
     !fs.existsSync(f) ||
-    !/\.(cjs|mjs|js|jsx|json|ya?ml|example)$/.test(f) ||
+    !/\.(md|cjs|mjs|js|jsx|json|ya?ml|example)$/.test(f) ||
     f.endsWith("lock.json")
   )
     continue;

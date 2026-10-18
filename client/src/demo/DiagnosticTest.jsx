@@ -1,3 +1,4 @@
+import DemoTrend from "./DemoTrend";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
@@ -883,7 +884,7 @@ const MainDashboard = ({ onStartWizard }) => {
             <FiTrendingUp className="text-emerald-500" /> Growth Trajectory
           </h2>
           <div className="aspect-video bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 text-sm font-bold">
-            [ Learning Curve Chart Placeholder ]
+            <DemoTrend />
           </div>
 
           <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">

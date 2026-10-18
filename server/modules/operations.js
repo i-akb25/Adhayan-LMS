@@ -72,6 +72,77 @@ const curriculum = z
       .max(20),
   })
   .strict();
+async function storeFile(user, courseId, bytes, query, extra = {}) {
+  courseId = String(new (require("mongoose").Types.ObjectId)(courseId));
+  if (!Buffer.isBuffer(bytes) || !bytes.length) fail(400, "Choose a file.");
+  const { title, name } = parse(
+    z.object({ title: text(), name: text(150) }).strict(),
+    query,
+  );
+  const [mime, ext] = fileType(bytes);
+  const base =
+    name
+      .replace(/\.[^.]+$/, "")
+      .replace(/[^A-Za-z0-9 _-]/g, "_")
+      .slice(0, 100) || "resource";
+  const nonce = crypto.randomBytes(12),
+    fileId = new (require("mongoose").Types.ObjectId)();
+  const cipher = crypto.createCipheriv("aes-256-gcm", fileKey(), nonce);
+  cipher.setAAD(Buffer.from(`${fileId}:${courseId}`));
+  const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+  const reserved = await M.User.findOneAndUpdate(
+    {
+      _id: user._id,
+      $or: [
+        { fileBytes: { $exists: false } },
+        { fileBytes: { $lte: 100 * 1024 * 1024 - bytes.length } },
+      ],
+    },
+    { $inc: { fileBytes: bytes.length } },
+  );
+  if (!reserved)
+    fail(
+      409,
+      "Your private-file storage limit is 100 MiB. Remove older unsubmitted files first.",
+    );
+  try {
+    return await M.PrivateFile.create({
+      _id: fileId,
+      courseId,
+      ownerId: user._id,
+      title,
+      name: base + ext,
+      mime,
+      size: bytes.length,
+      ciphertext,
+      nonce,
+      tag: cipher.getAuthTag(),
+      ...extra,
+    });
+  } catch (e) {
+    await M.User.updateOne(
+      { _id: user._id },
+      { $inc: { fileBytes: -bytes.length } },
+    );
+    throw e;
+  }
+}
+async function authorizeFile(user, file) {
+  if (
+    file.scope === "submission" &&
+    String(file.ownerId) !== String(user._id)
+  ) {
+    await courseAccess(user, file.courseId, true);
+    if (
+      !(await M.Submission.exists({
+        studentId: file.ownerId,
+        assignmentId: file.assignmentId,
+        fileIds: file._id,
+      }))
+    )
+      fail(403, "This attachment has not been submitted.");
+  } else await courseAccess(user, file.courseId);
+}
 function createOperations(auth, config) {
   const r = express.Router();
   r.get("/public/config", (_req, res) =>
@@ -375,7 +446,10 @@ function createOperations(auth, config) {
       res.json({
         success: true,
         data: (
-          await M.PrivateFile.find({ courseId: req.params.id }).limit(200)
+          await M.PrivateFile.find({
+            courseId: req.params.id,
+            scope: { $ne: "submission" },
+          }).limit(200)
         ).map(output),
       });
     }),
@@ -401,62 +475,7 @@ function createOperations(auth, config) {
     }),
     express.raw({ type: "application/octet-stream", limit: FILE_LIMIT }),
     wrap(async (req, res) => {
-      if (!Buffer.isBuffer(req.body) || !req.body.length)
-        fail(400, "Choose a file.");
-      const { title, name } = parse(
-        z.object({ title: text(), name: text(150) }).strict(),
-        req.query,
-      );
-      const [mime, ext] = fileType(req.body);
-      const base =
-        name
-          .replace(/\.[^.]+$/, "")
-          .replace(/[^A-Za-z0-9 _-]/g, "_")
-          .slice(0, 100) || "resource";
-      const nonce = crypto.randomBytes(12);
-      const cipher = crypto.createCipheriv("aes-256-gcm", fileKey(), nonce);
-      const fileId = new (require("mongoose").Types.ObjectId)();
-      cipher.setAAD(Buffer.from(`${fileId}:${req.params.id}`));
-      const ciphertext = Buffer.concat([
-        cipher.update(req.body),
-        cipher.final(),
-      ]);
-      const reserved = await M.User.findOneAndUpdate(
-        {
-          _id: req.user._id,
-          $or: [
-            { fileBytes: { $exists: false } },
-            { fileBytes: { $lte: 100 * 1024 * 1024 - req.body.length } },
-          ],
-        },
-        { $inc: { fileBytes: req.body.length } },
-      );
-      if (!reserved)
-        fail(
-          409,
-          "Your private-file storage limit is 100 MiB. Remove older files first.",
-        );
-      let f;
-      try {
-        f = await M.PrivateFile.create({
-          _id: fileId,
-          courseId: req.params.id,
-          ownerId: req.user._id,
-          title,
-          name: base + ext,
-          mime,
-          size: req.body.length,
-          ciphertext,
-          nonce,
-          tag: cipher.getAuthTag(),
-        });
-      } catch (e) {
-        await M.User.updateOne(
-          { _id: req.user._id },
-          { $inc: { fileBytes: -req.body.length } },
-        );
-        throw e;
-      }
+      const f = await storeFile(req.user, req.params.id, req.body, req.query);
       res.status(201).json({
         success: true,
         data: {
@@ -468,6 +487,87 @@ function createOperations(auth, config) {
       });
     }),
   );
+  r.post(
+    "/assignments/:id/files",
+    auth.roles("student"),
+    uploadLimit,
+    wrap(async (req, _res, next) => {
+      const assignment = await M.Assignment.findById(
+        parse(objectId, req.params.id),
+      );
+      if (!assignment) fail(404, "Assignment not found.");
+      await courseAccess(req.user, assignment.courseId);
+      if (assignment.dueAt && Date.now() > assignment.dueAt.getTime())
+        fail(409, "The assignment deadline has passed.");
+      if (
+        await M.Submission.exists({
+          assignmentId: assignment._id,
+          studentId: req.user._id,
+        })
+      )
+        fail(409, "Assignment already submitted.");
+      if (
+        (await M.PrivateFile.countDocuments({
+          assignmentId: assignment._id,
+          ownerId: req.user._id,
+          scope: "submission",
+        })) >= 10
+      )
+        fail(409, "Remove an older unsubmitted attachment first.");
+      req.assignment = assignment;
+      fileKey();
+      next();
+    }),
+    express.raw({ type: "application/octet-stream", limit: FILE_LIMIT }),
+    wrap(async (req, res) => {
+      const f = await storeFile(
+        req.user,
+        req.assignment.courseId,
+        req.body,
+        req.query,
+        { scope: "submission", assignmentId: req.assignment._id },
+      );
+      res.status(201).json({
+        success: true,
+        data: {
+          id: String(f._id),
+          name: f.name,
+          title: f.title,
+          size: f.size,
+        },
+      });
+    }),
+  );
+  r.get(
+    "/assignments/:id/files",
+    auth.roles("student"),
+    wrap(async (req, res) => {
+      const assignment = await M.Assignment.findById(
+        parse(objectId, req.params.id),
+      );
+      if (!assignment) fail(404, "Assignment not found.");
+      await courseAccess(req.user, assignment.courseId);
+      res.json({
+        success: true,
+        data: (
+          await M.PrivateFile.find({
+            assignmentId: assignment._id,
+            ownerId: req.user._id,
+            scope: "submission",
+          }).limit(30)
+        ).map(output),
+      });
+    }),
+  );
+  r.get(
+    "/files/:id/meta",
+    wrap(async (req, res) => {
+      const file = await M.PrivateFile.findById(parse(objectId, req.params.id));
+      if (!file) fail(404, "File not found.");
+      await authorizeFile(req.user, file);
+      res.json({ success: true, data: output(file) });
+    }),
+  );
   r.get(
     "/files/:id/download",
     wrap(async (req, res) => {
@@ -475,7 +575,7 @@ function createOperations(auth, config) {
         parse(objectId, req.params.id),
       ).select("+ciphertext +nonce +tag");
       if (!f) fail(404, "File not found.");
-      await courseAccess(req.user, f.courseId);
+      await authorizeFile(req.user, f);
       const decipher = crypto.createDecipheriv(
         "aes-256-gcm",
         fileKey(),
@@ -499,11 +599,18 @@ function createOperations(auth, config) {
   );
   r.delete(
     "/files/:id",
-    teacher,
     wrap(async (req, res) => {
       const f = await M.PrivateFile.findById(parse(objectId, req.params.id));
       if (!f) fail(404, "File not found.");
-      await courseAccess(req.user, f.courseId, true);
+      if (f.scope === "submission") {
+        if (String(f.ownerId) !== String(req.user._id))
+          fail(403, "Only the uploader can delete an unsubmitted attachment.");
+        if (
+          await M.Submission.exists({ studentId: req.user._id, fileIds: f._id })
+        )
+          fail(409, "Submitted attachments cannot be removed.");
+        await authorizeFile(req.user, f);
+      } else await courseAccess(req.user, f.courseId, true);
       const deleted = await M.PrivateFile.deleteOne({ _id: f._id });
       if (deleted.deletedCount)
         await M.User.updateOne(
@@ -528,6 +635,9 @@ function createOperations(auth, config) {
         Notification: { userId: uid },
         Membership: { userId: uid },
         Message: { userId: uid },
+        PrivateFile: { ownerId: uid },
+        RoomReport: { reporterId: uid },
+        ScheduledClass: { ownerId: uid },
       };
       const records = {};
       for (const [name, filter] of Object.entries(filters)) {
@@ -631,7 +741,23 @@ async function purgeAccount(uid) {
   });
   for (const name of ["Session", "ActionToken", "Membership", "Notification"])
     await M[name].deleteMany({ userId: uid });
+  const classes = await M.ScheduledClass.find({ ownerId: uid }).select(
+    "roomId",
+  );
+  await M.ScheduledClass.updateMany(
+    { ownerId: uid },
+    { $set: { cancelled: true } },
+  );
+  await M.Room.updateMany(
+    { _id: { $in: classes.map((c) => c.roomId) } },
+    { $set: { closed: true } },
+  );
+  await M.RoomReport.updateMany(
+    { resolvedBy: uid },
+    { $unset: { resolvedBy: 1 } },
+  );
   await M.PrivateFile.deleteMany({ ownerId: uid });
+  await M.RoomReport.deleteMany({ reporterId: uid });
   await M.Audit.updateMany({ actorId: uid }, { $unset: { actorId: 1 } });
   await M.User.updateOne(
     { _id: uid },

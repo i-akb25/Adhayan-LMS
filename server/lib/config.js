@@ -5,6 +5,7 @@ function loadConfig(env = process.env) {
       .enum(["development", "test", "production"])
       .default("development"),
     PORT: z.coerce.number().int().min(1).max(65535).default(5000),
+    API_RATE_LIMIT: z.coerce.number().int().min(30).max(10000).default(300),
     CLIENT_URL: z.string().default("http://localhost:5173"),
     MONGO_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\//),
     JWT_ACCESS_SECRET: z.string().min(32),

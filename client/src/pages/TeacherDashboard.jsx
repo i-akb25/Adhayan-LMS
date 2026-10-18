@@ -523,7 +523,7 @@ export default function TeacherDashboard() {
                       </button>
                     </div>
                     <div className="flex items-center justify-center py-4">
-                      {/* Placeholder for Circular Progress Chart */}
+                      {/* Demonstration attendance summary */}
                       <div className="w-32 h-32 rounded-full border-8 border-emerald-500 border-r-slate-200 dark:border-r-slate-800 flex items-center justify-center">
                         <div className="text-2xl font-black">94%</div>
                       </div>

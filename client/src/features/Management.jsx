@@ -7,7 +7,7 @@ const input =
   "w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3";
 const button =
   "px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50";
-function useRecords(path) {
+export function useRecords(path) {
   const [data, setData] = useState([]),
     [error, setError] = useState("");
   const sequence = useRef(0);
@@ -38,7 +38,7 @@ function useRecords(path) {
   }, [reload, invalidate]);
   return { data, error, reload };
 }
-function useTask() {
+export function useTask() {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
   const run = async (fn) => {
@@ -62,7 +62,7 @@ function Message({ children }) {
     </p>
   ) : null;
 }
-function download(data, name, type = "application/json") {
+export function download(data, name, type = "application/json") {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const link = document.createElement("a");
   link.href = url;

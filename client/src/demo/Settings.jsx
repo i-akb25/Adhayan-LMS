@@ -617,7 +617,6 @@ export default function Settings() {
         )}
       </AnimatePresence>
 
-      {/* FUTURE API PLACEHOLDERS */}
     </div>
   );
 }
